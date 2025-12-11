@@ -1,0 +1,15 @@
+nix build .#install-iso
+nix build .#install-iso --impure
+
+qemu-system-x86_64 -enable-kvm -m 4G -smp 4 -vga virtio -display sdl,gl=on -cdrom result/iso/*.iso
+
+qemu-system-x86_64 \
+  -enable-kvm \
+  -m 4096 \
+  -smp 4 \
+  -vga virtio \
+  -display gtk \
+  -cdrom result/iso/*.iso
+
+
+QEMU_OPTS="-vga virtio -display gtk" nix run .#run-vm --impure
