@@ -28,11 +28,12 @@ for (var i = 0; i < allPanels.length; i++) {
 }
 EOF
 
+      # Używamy pełnej ścieżki do qdbus i dodajemy opóźnienie
       cat > "$CONFIG_DIR/autostart/cleanup-panels.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Cleanup Panels
-Exec=qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$USER_HOME/clean_layout.js"
+Exec=sh -c "sleep 8 && ${pkgs.kdePackages.qttools}/bin/qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript '$USER_HOME/clean_layout.js'"
 X-KDE-AutostartScript=true
 EOF
 

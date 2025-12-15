@@ -25,7 +25,7 @@ let
     margin-left = 0;
     margin-right = 0;
 
-    modules-left = [ "custom/logo" "custom/spacer" "wlr/taskbar" ]; # Taskbar here acts like window list if needed, or just remove
+    modules-left = [ "custom/logo" "custom/spacer" "wlr/taskbar" ]; # Keep taskbar for now as window switcher
     modules-center = [ "clock" ];
     modules-right = [ "group/status" "custom/control" ];
 
@@ -79,25 +79,6 @@ let
     name = "dock";
     layer = "top";
     position = "bottom";
-    height = 54;
-    margin-bottom = 10;
-    
-    modules-center = [ "custom/launchers" ];
-
-    "custom/launchers" = {
-      format = "            ";
-      on-click = "${pkgs.kdePackages.dolphin}/bin/dolphin"; # Default action (files)
-      # Note: Waybar custom modules only support one click action easily without 'exec'. 
-      # For a real dock we usually need separate modules or wlr/taskbar.
-      # Let's try separate custom modules for better utility.
-    };
-  };
-  
-  # Improved Dock with separate icons
-  dockConfigReal = {
-    name = "dock";
-    layer = "top";
-    position = "bottom";
     height = 50;
     margin-bottom = 12;
     
@@ -131,7 +112,7 @@ let
   };
 
   # Combine configs
-  waybarConfig = [ topBarConfig dockConfigReal ];
+  waybarConfig = [ topBarConfig dockConfig ];
 
   # --- Waybar CSS ---
   waybarStyle = ''
