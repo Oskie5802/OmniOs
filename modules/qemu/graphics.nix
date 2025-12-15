@@ -4,6 +4,7 @@
   # --- KONFIGURACJA VM: GRAFIKA I HARDWARE ---
   virtualisation = {
     memorySize = 8192;
+    diskSize = 8192;
     cores = 6;
     graphics = true; # włączone (GUI QEMU) — GL wyłączone (software rendering)
     
