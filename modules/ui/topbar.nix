@@ -25,12 +25,13 @@ let
     margin-left = 0;
     margin-right = 0;
 
-    modules-left = [ "custom/logo" "custom/spacer" "wlr/taskbar" ]; # Keep taskbar for now as window switcher
+    modules-left = [ "image#logo" "custom/spacer" "wlr/taskbar" ]; # Keep taskbar for now as window switcher
     modules-center = [ "clock" ];
     modules-right = [ "group/status" "custom/control" ];
 
-    "custom/logo" = {
-      format = "  "; # Apple logo or similar
+    "image#logo" = {
+      path = "/etc/omni/logo.png";
+      size = 22;
       tooltip = false;
       on-click = "${pkgs.kdePackages.krunner}/bin/krunner";
     };
@@ -260,6 +261,9 @@ in
   environment.etc."xdg/waybar/style.css".source = wbStyle;
   environment.etc."xdg/swaync/config.json".source = sncConfig;
   environment.etc."xdg/swaync/style.css".source = sncStyle;
+  
+  # Copy logo to /etc/omni/logo.png
+  environment.etc."omni/logo.png".source = ../../assets/logo-trans.png;
 
   system.activationScripts.setupUI = lib.mkAfter ''
     USER_HOME="/home/omnios"

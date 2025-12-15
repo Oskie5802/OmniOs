@@ -22,18 +22,20 @@ EOF
 
       # B. CZYSZCZENIE UKŁADU (Usuwanie dolnego paska KDE)
       cat > "$USER_HOME/clean_layout.js" <<EOF
+// Wait for panels to be loaded
 var allPanels = panels();
+// Remove all of them
 for (var i = 0; i < allPanels.length; i++) {
     allPanels[i].remove();
 }
 EOF
 
-      # Używamy pełnej ścieżki do qdbus i dodajemy opóźnienie
+      # Używamy pętli, aby upewnić się, że Plasma jest gotowa
       cat > "$CONFIG_DIR/autostart/cleanup-panels.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Cleanup Panels
-Exec=sh -c "sleep 8 && ${pkgs.kdePackages.qttools}/bin/qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript '$USER_HOME/clean_layout.js'"
+Exec=sh -c "sleep 5; for i in {1..10}; do ${pkgs.kdePackages.qttools}/bin/qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript '$USER_HOME/clean_layout.js' && break; sleep 3; done"
 X-KDE-AutostartScript=true
 EOF
 
