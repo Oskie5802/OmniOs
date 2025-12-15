@@ -25,12 +25,12 @@ let
     margin-left = 0;
     margin-right = 0;
 
-    modules-left = [ "image#logo" "custom/spacer" "wlr/taskbar" ]; # Keep taskbar for now as window switcher
+    modules-left = [ "image#logo" "custom/spacer" ]; # Removed wlr/taskbar to prevent crashes
     modules-center = [ "clock" ];
     modules-right = [ "group/status" "custom/control" ];
 
     "image#logo" = {
-      path = "/etc/omni/logo.png";
+      path = "${../../assets/logo-trans.png}";
       size = 22;
       tooltip = false;
       on-click = "${pkgs.kdePackages.krunner}/bin/krunner";
@@ -262,7 +262,7 @@ in
   environment.etc."xdg/swaync/config.json".source = sncConfig;
   environment.etc."xdg/swaync/style.css".source = sncStyle;
   
-  # Copy logo to /etc/omni/logo.png
+  # Copy logo to /etc/omni/logo.png (Legacy / Backup)
   environment.etc."omni/logo.png".source = ../../assets/logo-trans.png;
 
   system.activationScripts.setupUI = lib.mkAfter ''

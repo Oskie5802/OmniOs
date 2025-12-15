@@ -65,6 +65,17 @@ echo "✅ Done. Try pressing Ctrl + Space."
 EOF
       chmod +x "$USER_HOME/bin/fix-omni"
 
+      cat > "$USER_HOME/start-ui.sh" <<EOF
+#!/bin/sh
+pkill waybar
+pkill swaync
+${pkgs.swaynotificationcenter}/bin/swaync &
+sleep 2
+# Launch Waybar with logging for debug
+${pkgs.waybar}/bin/waybar > "$USER_HOME/waybar.log" 2>&1 &
+EOF
+      chmod +x "$USER_HOME/start-ui.sh"
+
       chown -R omnios:users "$USER_HOME"
     fi
   '';
