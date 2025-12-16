@@ -1,7 +1,7 @@
 { config, pkgs, lib, ... }:
 
 {
-  boot.initrd.kernelModules = [ "virtio_gpu" "virtio_pci" "virtio_blk" ];
+  boot.initrd.kernelModules = [ "virtio_gpu" "virtio_pci" "virtio_blk" "virtio_input" "uinput" ];
 
   services.qemuGuest.enable = true;
   services.spice-vdagentd.enable = true;

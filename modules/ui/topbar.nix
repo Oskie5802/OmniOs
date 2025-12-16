@@ -158,14 +158,15 @@ EOF
     chmod +x "$USER_HOME/start-ui.sh"
     
     # Dodajemy do autostartu
-    mkdir -p "$USER_HOME/.config/autostart"
-    cat > "$USER_HOME/.config/autostart/ui.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=UI
-Exec=$USER_HOME/start-ui.sh
-X-KDE-AutostartScript=true
-EOF
+    # DISABLED UI AUTOSTART TO FIX FREEZE
+    # mkdir -p "$USER_HOME/.config/autostart"
+    # cat > "$USER_HOME/.config/autostart/ui.desktop" <<EOF
+    # [Desktop Entry]
+    # Type=Application
+    # Name=UI
+    # Exec=$USER_HOME/start-ui.sh
+    # X-KDE-AutostartScript=true
+    # EOF
     chown -R omnios:users "$USER_HOME"
   '';
 }

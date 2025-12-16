@@ -1,6 +1,5 @@
 { config, pkgs, lib, ... }:
 let
-  # Ensure these files are tracked by git!
   lightLogoPath = ../../assets/light.jpeg; 
   splashLogoPath = ../../assets/logo-trans.png; 
 
@@ -103,6 +102,14 @@ EOF
   };
 in
 {
+  # 0. Bootloader & Virtualisation
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+  boot.loader.timeout = 0;
+  
+  # Use UEFI for the VM (replaces SeaBIOS with OVMF)
+  virtualisation.useEFIBoot = true;
+
   environment.systemPackages = [ customKdeSplash ];
 
   # 1. Logs: Set to 3 (Error) instead of 0 (Silent) for safety

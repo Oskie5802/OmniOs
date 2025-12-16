@@ -1,218 +1,313 @@
 { pkgs, config, lib, ... }:
 
 let
-  omniPython = pkgs.python3.withPackages (ps: with ps; [ requests pandas numpy ]);
+  # 1. SETUP: Python with requests app and PyQt6
+  omniPython = pkgs.python3.withPackages (ps: with ps; [ requests pyqt6 ]);
 
-  # --- 1. THEME (Clean, Apple-like, Corrected UI) ---
-  themeContent = ''
-    * {
-        bg-base:      #ffffff;
-        bg-selected:  #007aff;
-        fg-text:      #1d1d1f;
-        fg-sel-text:  #ffffff;
-        fg-subtle:    #86868b;
-        border-col:   #e5e5ea;
-        
-        font: "Manrope Medium 13"; 
-        background-color: @bg-base;
-        text-color:       @fg-text;
-        
-        margin: 0; padding: 0; spacing: 0;
-    }
-    
-    window { 
-        width: 640px; 
-        border: 1px; 
-        border-color: @border-col; 
-        border-radius: 16px; 
-        location: center; 
-        anchor: center;
-        transparency: "real";
-    }
-
-    mainbox { 
-        children: [ inputbar, message, listview ]; 
-        spacing: 0px; 
-    }
-
-    inputbar { 
-        background-color: #f5f5f7; 
-        padding: 18px; 
-        /* Corrected: prompt and entry are children of inputbar */
-        children: [ prompt, entry ]; 
-        spacing: 12px;
-        border: 0px 0px 1px 0px;
-        border-color: @border-col;
-    }
-
-    prompt { 
-        /* The 'omni' text goes here */
-        text: "omni"; 
-        font: "Manrope ExtraBold 16"; 
-        text-color: #007aff; 
-        vertical-align: 0.5; 
-        background-color: transparent; 
-        padding: 0 8px 0 0; /* Add a little space after 'omni' */
-    }
-
-    entry { 
-        /* Placeholder text for the search/input field */
-        placeholder: "Search Apps or Shift+Enter to Ask AI..."; 
-        font: "Manrope Medium 16"; 
-        placeholder-color: #aeaeb2; 
-        cursor: text; 
-        vertical-align: 0.5; 
-        background-color: transparent; 
-        padding: 0; /* Ensure no extra padding */
-    }
-
-    /* THE ANSWER BOX */
-    message {
-        border: 0px;
-        padding: 0px;
-        background-color: @bg-base;
-    }
-    
-    textbox {
-        padding: 24px;
-        font: "Manrope Medium 14";
-        text-color: @fg-text;
-        background-color: transparent;
-    }
-
-    /* RESULTS LIST */
-    listview { 
-        lines: 7; 
-        columns: 1; 
-        scrollbar: false; 
-        fixed-height: false; 
-        padding: 8px;
-        background-color: @bg-base;
-        spacing: 4px;
-        border: 0px;
-    }
-
-    element { 
-        padding: 10px 14px; 
-        border-radius: 10px; 
-        spacing: 12px; 
-        background-color: transparent; 
-        children: [ element-icon, element-text ];
-        cursor: pointer;
-    }
-    
-    element selected.normal { 
-        background-color: #f2f2f7; 
-        text-color: @fg-text;
-    }
-
-    element-text { 
-        font: "Manrope SemiBold 13";
-        text-color: inherit; 
-        vertical-align: 0.5;
-        background-color: transparent;
-    }
-    
-    element-icon { 
-        size: 28px; 
-        vertical-align: 0.5; 
-        background-color: transparent;
-    }
-  '';
-  omniTheme = pkgs.writeText "aeriform.rasi" themeContent;
-
-  # --- 2. THE LOGIC SCRIPT (With Connection Retries) ---
-  omniLogic = pkgs.writeScriptBin "omni-smart-mode" ''
+  # --- 2. LOGIC & UI (Custom Qt Launcher) ---
+  omniLauncher = pkgs.writeScriptBin "omni-launcher" ''
     #!${omniPython}/bin/python
-    import sys, os, glob, json, requests, subprocess, time
+    import sys
+    import os
+    import subprocess
+    import requests
+    from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLineEdit, 
+                                 QListWidget, QListWidgetItem, QFrame, QAbstractItemView,
+                                 QGraphicsDropShadowEffect)
+    from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QPoint, QRect
+    from PyQt6.QtGui import QColor, QFont, QIcon
 
-    # --- CONFIG ---
+    # CONFIG
     BRAIN_URL = "http://127.0.0.1:5500/ask"
-    MAX_RETRIES = 5
-    RETRY_DELAY = 2 # Seconds
+    
+    # --- DESIGN SYSTEM ---
+    # Aesthetic: "Ethereal Day"
+    # Font: Manrope (Modern, Geometric, Clean)
+    STYLE_SHEET = """
+    /* Global Reset */
+    * {
+        font-family: "Manrope", "Urbanist", sans-serif;
+        outline: none;
+    }
 
-    # Rofi environment variables
-    retv = int(os.environ.get('ROFI_RETV', 0))
-    info = os.environ.get('ROFI_INFO', ' '.strip())
-    argument = sys.argv[1] if len(sys.argv) > 1 else ""
+    /* Main Window Container */
+    QWidget {
+        background-color: transparent;
+        color: #1d1d1f; /* Apple Text Black */
+    }
 
-    def scan_apps():
-        apps = []
-        seen = set()
-        paths = ["/run/current-system/sw/share/applications", os.path.expanduser("~/.nix-profile/share/applications")]
-        
-        for p in paths:
-            if not os.path.exists(p): continue
-            for f in glob.glob(os.path.join(p, "*.desktop")):
-                name = os.path.basename(f).replace(".desktop", "").replace("-", " ").title()
-                if name not in seen:
-                    seen.add(name)
-                    apps.append(f"{name}\0icon\x1fsystem-run\x1finfo\x1fAPP:{f}")
-        return sorted(apps)
+    /* The Content Card */
+    QFrame#MainFrame {
+        background-color: rgba(255, 255, 255, 0.92); /* Frosted White */
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 24px;
+    }
 
-    def call_brain(query):
-        for attempt in range(MAX_RETRIES):
+    /* Input Field */
+    QLineEdit {
+        background-color: transparent;
+        border: none;
+        padding: 24px 28px;
+        font-size: 22px;
+        font-weight: 500; 
+        color: #000000;
+        selection-background-color: #A3D3FF;
+    }
+    QLineEdit::placeholder {
+        color: rgba(60, 60, 67, 0.3); /* Apple Secondary Label */
+        font-weight: 400;
+    }
+
+    /* Divider Line */
+    QFrame#Divider {
+        background-color: rgba(60, 60, 67, 0.1); /* Subtle Separator */
+        min-height: 1px;
+        max-height: 1px;
+        margin: 0px 24px;
+    }
+
+    /* Result List */
+    QListWidget {
+        background-color: transparent;
+        border: none;
+        padding: 12px;
+    }
+    
+    QListWidget::item {
+        padding: 14px 20px;
+        margin-bottom: 4px;
+        border-radius: 16px;
+        color: #1d1d1f;
+        font-size: 16px;
+        font-weight: 500;
+        border: 1px solid transparent;
+    }
+
+    /* Selected Item (The "Active" State) */
+    QListWidget::item:selected {
+        background-color: #000000; /* Bold Black Accent */
+        color: #FFFFFF;
+        font-weight: 600;
+        border: none;
+    }
+    
+    /* Scrollbar Styling (Hidden/Minimalist) */
+    QScrollBar:vertical {
+        border: none;
+        background: transparent;
+        width: 6px;
+        margin: 0px;
+    }
+    QScrollBar::handle:vertical {
+        background: rgba(0, 0, 0, 0.1);
+        min-height: 30px;
+        border-radius: 3px;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0px;
+    }
+    """
+
+    class AIWorker(QThread):
+        finished = pyqtSignal(str)
+
+        def __init__(self, query):
+            super().__init__()
+            self.query = query
+
+        def run(self):
             try:
-                payload = {"query": query}
-                r = requests.post(BRAIN_URL, json=payload, timeout=60)
-                if r.status_code == 200:
-                    return r.json().get("answer", "No answer received.")
-                else:
-                    # Server responded, but with an error status
-                    return f"Error: Server returned {r.status_code}"
-            except requests.exceptions.ConnectionError as e:
-                # Connection refused or similar - server might be starting
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(RETRY_DELAY)
-                else:
-                    return f"Error: Could not connect to Brain. (Connection refused)"
+                r = requests.post(BRAIN_URL, json={"query": self.query}, timeout=45)
+                answer = r.json().get("answer", "No answer received.")
+                self.finished.emit(answer)
+            except requests.exceptions.ConnectionError:
+                self.finished.emit("The Omni AI hasn't loaded yet. Please try again in a moment.")
             except Exception as e:
-                # Other errors
-                return f"Error: {str(e)}"
-        return "Error: Max retries exceeded." # Should not be reached if MAX_RETRIES > 0
+                self.finished.emit(f"System Error: {str(e)}")
 
-    def main():
-        # --- CASE 1: INITIAL LOAD ---
-        if retv == 0:
-            print("\n".join(scan_apps()))
-
-        # --- CASE 2: USER SELECTED AN APP (Return) ---
-        elif retv == 1:
-            if info.startswith("APP:"):
-                app_path = info.split(":", 1)[1]
-                subprocess.Popen(["kstart6", app_path])
-                sys.exit(0)
-            elif info.startswith("COPY:"):
-                text = info.split(":", 1)[1]
-                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode())
-                sys.exit(0)
-
-        # --- CASE 3: ASK AI (Shift+Return) ---
-        elif retv == 2: 
-            answer = call_brain(argument)
-            safe_answer = answer.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    class OmniWindow(QWidget):
+        def __init__(self):
+            super().__init__()
+            # Frameless & Translucent
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            self.resize(720, 500) 
+            self.center()
             
-            # Update UI: Show answer in message box
-            print(f"\0message\x1f{safe_answer}")
+            # Main Layout
+            main_layout = QVBoxLayout(self)
+            main_layout.setContentsMargins(40, 40, 40, 40) # Generous margins for large soft shadow
             
-            # Show "Copy" button in list
-            print(f"Copy to Clipboard\0icon\x1fedit-copy\0info\x1fCOPY:{answer}")
+            # The Content Frame (Card)
+            self.frame = QFrame()
+            self.frame.setObjectName("MainFrame")
+            
+            # Soft High-End Drop Shadow
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(60)
+            shadow.setXOffset(0)
+            shadow.setYOffset(20)
+            shadow.setColor(QColor(0, 0, 0, 30)) # Very subtle, pure black shadow
+            self.frame.setGraphicsEffect(shadow)
+            
+            # Inner Layout
+            frame_layout = QVBoxLayout(self.frame)
+            frame_layout.setContentsMargins(0, 0, 0, 0)
+            frame_layout.setSpacing(0)
+            
+            # Input
+            self.input_field = QLineEdit()
+            self.input_field.setPlaceholderText("Does this spark joy?")
+            self.input_field.textChanged.connect(self.on_text_changed)
+            self.input_field.returnPressed.connect(self.on_entered)
+            
+            # Divider
+            self.divider = QFrame()
+            self.divider.setObjectName("Divider")
+            
+            # List
+            self.list_widget = QListWidget()
+            self.list_widget.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.list_widget.itemClicked.connect(self.on_entered)
+            self.list_widget.setWordWrap(True) 
+            self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus) # Keep focus on input
+            
+            frame_layout.addWidget(self.input_field)
+            frame_layout.addWidget(self.divider)
+            frame_layout.addWidget(self.list_widget)
+            main_layout.addWidget(self.frame)
+            
+            self.setStyleSheet(STYLE_SHEET)
+            
+            # Data
+            self.apps = self.load_apps()
+            self.refresh_list("")
+
+            # Entry Animation
+            self.animate_entry()
+
+        def center(self):
+            qr = self.frameGeometry()
+            cp = self.screen().availableGeometry().center()
+            qr.moveCenter(cp)
+            qr.moveTop(qr.top() - 100) # Visual center slightly higher
+            self.move(qr.topLeft())
+
+        def animate_entry(self):
+            # Animate the geometry (Slide Up with springy feel)
+            self.anim_geo = QPropertyAnimation(self, b"geometry")
+            self.anim_geo.setDuration(600)
+            self.anim_geo.setStartValue(QRect(self.x(), self.y() + 30, self.width(), self.height()))
+            self.anim_geo.setEndValue(QRect(self.x(), self.y(), self.width(), self.height()))
+            self.anim_geo.setEasingCurve(QEasingCurve.Type.OutBack) # Slight overshoot for delight
+            
+            # Animate Opacity (Fade In)
+            self.anim_opa = QPropertyAnimation(self, b"windowOpacity")
+            self.anim_opa.setDuration(400)
+            self.anim_opa.setStartValue(0)
+            self.anim_opa.setEndValue(1)
+            
+            self.anim_geo.start()
+            self.anim_opa.start()
+            
+        def load_apps(self):
+            apps = []
+            paths = ["/run/current-system/sw/share/applications", os.path.expanduser("~/.nix-profile/share/applications")]
+            seen = set()
+            for p in paths:
+                if not os.path.exists(p): continue
+                try:
+                    for f in os.listdir(p):
+                        if f.endswith(".desktop"):
+                            name = f.replace(".desktop", "").replace("-", " ").title()
+                            if name in seen: continue
+                            seen.add(name)
+                            full_path = os.path.join(p, f)
+                            apps.append({"name": name, "path": full_path, "type": "app"})
+                except: continue
+            return sorted(apps, key=lambda x: x['name'])
+
+        def on_text_changed(self, text):
+            self.refresh_list(text)
+
+        def refresh_list(self, query):
+            self.list_widget.clear()
+            
+            # 1. ASK AI ROW
+            display_text = f"Ask Omni: {query}" if query else "Ask Omni..."
+            ai_item = QListWidgetItem(display_text)
+            ai_item.setData(Qt.ItemDataRole.UserRole, {"type": "ai", "query": query})
+            self.list_widget.addItem(ai_item)
+            
+            # 2. FILTERED APPS
+            query_lower = query.lower()
+            count = 0
+            for app in self.apps:
+                if count > 8: break 
+                if query_lower in app['name'].lower():
+                    item = QListWidgetItem(app['name'])
+                    item.setData(Qt.ItemDataRole.UserRole, app)
+                    self.list_widget.addItem(item)
+                    count += 1
+            
+            self.list_widget.setCurrentRow(0)
+
+        def on_entered(self):
+            if self.list_widget.currentRow() < 0: return
+            
+            item = self.list_widget.currentItem()
+            data = item.data(Qt.ItemDataRole.UserRole)
+            
+            if data['type'] == 'ai':
+                query = data['query']
+                if not query: return
+                self.start_ai_inference(query)
+                
+            elif data['type'] == 'app':
+                subprocess.Popen(["kstart6", data['path']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.close()
+
+        def start_ai_inference(self, query):
+            self.list_widget.clear()
+            
+            loading_item = QListWidgetItem("Thinking...")
+            loading_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.list_widget.addItem(loading_item)
+            
+            self.input_field.setDisabled(True)
+            self.input_field.setStyleSheet("color: rgba(60, 60, 67, 0.6);")
+            
+            self.worker = AIWorker(query)
+            self.worker.finished.connect(self.display_ai_result)
+            self.worker.start()
+
+        def display_ai_result(self, answer):
+            self.input_field.setDisabled(False)
+            self.input_field.setStyleSheet("")
+            self.input_field.setFocus()
+            self.list_widget.clear()
+            
+            answer_item = QListWidgetItem(answer)
+            self.list_widget.addItem(answer_item)
+            
+            subprocess.run(["xclip", "-selection", "clipboard"], input=answer.encode(), stderr=subprocess.DEVNULL)
+
+        def keyPressEvent(self, event):
+            if event.key() == Qt.Key.Key_Escape:
+                self.close()
 
     if __name__ == "__main__":
-        main()
+        app = QApplication(sys.argv)
+        window = OmniWindow()
+        window.show()
+        sys.exit(app.exec())
   '';
 
   # --- 3. WRAPPER ---
   openOmniScript = pkgs.writeShellScriptBin "open-omni" ''
-    export PATH="${pkgs.coreutils}/bin:${pkgs.xclip}/bin:${pkgs.kdePackages.kservice}/bin:$PATH"
-    
-    rofi \
-        -show omni \
-        -modi "omni:${omniLogic}/bin/omni-smart-mode" \
-        -theme ${omniTheme} \
-        -p "●" \
-        -kb-accept-entry "Return" \
-        -kb-cancel "Escape"
+    export PATH="${pkgs.coreutils}/bin:${pkgs.xclip}/bin:${pkgs.kdePackages.kservice}/bin:${pkgs.libnotify}/bin:$PATH"
+    ${omniLauncher}/bin/omni-launcher
   '';
 
   omniDesktopItem = pkgs.makeDesktopItem {
@@ -225,9 +320,9 @@ let
 
 in
 {
-  environment.systemPackages = with pkgs; [ 
-    rofi omniDesktopItem xclip libnotify kdePackages.kservice jq curl papirus-icon-theme
+  environment.systemPackages = with pkgs; [
+    omniLauncher omniDesktopItem xclip libnotify kdePackages.kservice papirus-icon-theme
   ];
-  
+  # Manrope: A modern, geometric sans-serif that is excellent for UI clarity and style.
   fonts.packages = with pkgs; [ manrope ];
 }

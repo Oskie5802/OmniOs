@@ -176,8 +176,9 @@ in
   environment.systemPackages = [ indexerScript searchScript ];
 
   systemd.user.services.ai-memory = {
+    enable = false; # DISABLED TO FIX FREEZE
     description = "OmniOS Semantic Memory Service";
-    wantedBy = [ "graphical-session.target" ];
+    # wantedBy = [ "graphical-session.target" ];
     partOf = [ "graphical-session.target" ];
     environment = { PYTHONUNBUFFERED = "1"; };
     serviceConfig = {
