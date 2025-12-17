@@ -9,6 +9,7 @@ let
     numpy
     pyarrow
     pypdf
+    python-docx
   ]);
 
   indexerScript = pkgs.writeScriptBin "ai-mem-daemon" ''
@@ -27,6 +28,7 @@ let
     from watchdog.events import FileSystemEventHandler
     from sentence_transformers import SentenceTransformer
     from pypdf import PdfReader
+    import docx
 
     # --- CONFIG ---
     HOME_DIR = os.path.expanduser("~")
@@ -69,6 +71,9 @@ let
                 for page in reader.pages:
                     txt = page.extract_text()
                     if txt: text += txt + "\n"
+            elif filepath.endswith('.docx'):
+                doc = docx.Document(filepath)
+                text = "\n".join([para.text for para in doc.paragraphs])
             else:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     text = f.read()
@@ -122,7 +127,7 @@ let
         print("🔎 [Memory] Performing startup scan...", flush=True)
         for root, dirs, files in os.walk(WATCH_DIR):
             for file in files:
-                if file.endswith(('.txt', '.md', '.py', '.nix', '.pdf')):
+                if file.endswith(('.txt', '.md', '.py', '.nix', '.pdf', '.docx')):
                     index_file(os.path.join(root, file))
 
         observer = Observer()
@@ -169,16 +174,64 @@ let
                 print("-" * 40)
     except Exception as e:
         print(f"Error: {e}")
+    except Exception as e:
+        print(f"Error: {e}")
+  '';
+
+  statusScript = pkgs.writeScriptBin "ai-mem-status" ''
+    #!${pkgs.bash}/bin/bash
+    echo "=== 1. Service Status ==="
+    systemctl --user status ai-memory --no-pager
+    
+    echo -e "\n=== 2. Recent Logs ==="
+    journalctl --user -u ai-memory -n 20 --no-pager
+    
+    echo -e "\n=== 3. Documents Folder Content ==="
+    ls -R ~/Documents 2>/dev/null || echo "No Documents folder found"
+    
+    echo -e "\n=== 4. Index Content ==="
+    ${memoryPython}/bin/python -c "
+import lancedb, os
+HOME = os.path.expanduser('~')
+DB = os.path.join(HOME, '.local/share/ai-memory-db')
+try:
+    db = lancedb.connect(DB)
+    print(db.open_table('files').to_pandas())
+except Exception as e: print(e)
+"
+  '';
+
+  listScript = pkgs.writeScriptBin "ai-mem-list" ''
+    #!${memoryPython}/bin/python
+    import lancedb
+    import os
+    import pandas as pd
+
+    HOME_DIR = os.path.expanduser("~")
+    DB_PATH = os.path.join(HOME_DIR, ".local/share/ai-memory-db")
+    
+    try:
+        db = lancedb.connect(DB_PATH)
+        tbl = db.open_table("files")
+        df = tbl.to_pandas()
+        if df.empty:
+            print("Index is empty.")
+        else:
+            print(f"Found {len(df)} files in index:")
+            for _, row in df.iterrows():
+                print(f"- {row['filename']} ({row['path']})")
+    except Exception as e:
+        print(f"Error reading index (might be empty): {e}")
   '';
 
 in
 {
-  environment.systemPackages = [ indexerScript searchScript ];
+  environment.systemPackages = [ indexerScript searchScript listScript statusScript ];
 
   systemd.user.services.ai-memory = {
-    enable = false; # DISABLED TO FIX FREEZE
+    enable = true; # RE-ENABLED
     description = "OmniOS Semantic Memory Service";
-    # wantedBy = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
     partOf = [ "graphical-session.target" ];
     environment = { PYTHONUNBUFFERED = "1"; };
     serviceConfig = {

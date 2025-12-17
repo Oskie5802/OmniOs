@@ -131,6 +131,22 @@ let
             except Exception as e:
                 self.finished.emit(f"System Error: {str(e)}")
 
+    class SearchWorker(QThread):
+        results_found = pyqtSignal(list, str) # results, query_at_start
+
+        def __init__(self, query):
+            super().__init__()
+            self.query = query
+
+        def run(self):
+            try:
+                # Semantic Search
+                r = requests.post("http://127.0.0.1:5500/search", json={"query": self.query}, timeout=5)
+                results = r.json().get("results", [])
+                self.results_found.emit(results, self.query)
+            except:
+                self.results_found.emit([], self.query)
+
     class OmniWindow(QWidget):
         def __init__(self):
             super().__init__()
@@ -193,6 +209,38 @@ let
 
             # Entry Animation
             self.animate_entry()
+
+            # Search Worker
+            self.search_worker = None
+
+        def handle_semantic_results(self, results, original_query):
+            # Only update if the query hasn't changed significantly or if we want to show results anyway
+            # Check if input still matches roughly what was searched
+            current_text = self.input_field.text()
+            if current_text != original_query: return 
+
+            if not results: return
+
+            # Add separator if needed or just append
+            # To avoid duplicate items if file is found by both 'fd' and 'semantic', we can check paths
+            existing_paths = set()
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                d = item.data(Qt.ItemDataRole.UserRole)
+                if d and 'path' in d: existing_paths.add(d['path'])
+
+            added_count = 0
+            for res in results:
+                if res['path'] in existing_paths: continue
+                
+                item = QListWidgetItem(res['name'])
+                item.setIcon(QIcon.fromTheme("emblem-symbolic-link")) # Use distinct icon for semantic matches
+                item.setData(Qt.ItemDataRole.UserRole, res)
+                self.list_widget.addItem(item)
+                added_count += 1
+            
+            if added_count > 0:
+                self.list_widget.scrollToBottom()
 
         def center(self):
             qr = self.frameGeometry()
@@ -353,6 +401,16 @@ let
                 self.list_widget.addItem(item)
 
             self.list_widget.setCurrentRow(0)
+
+            # 4. Trigger Semantic Search (Async)
+            if len(query) > 1:
+                if self.search_worker and self.search_worker.isRunning():
+                    self.search_worker.terminate()
+                    self.search_worker.wait()
+                
+                self.search_worker = SearchWorker(query)
+                self.search_worker.results_found.connect(self.handle_semantic_results)
+                self.search_worker.start()
 
         def on_entered(self):
             if self.list_widget.currentRow() < 0: return

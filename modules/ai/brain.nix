@@ -52,6 +52,21 @@ init_error = None
 
 def ensure_models_loaded():
     global llm, embed_model, db_conn, init_error
+    
+    # Always try to connect to DB if missing (files might be created later)
+    if db_conn is None:
+        try: 
+            if os.path.exists(DB_PATH): 
+                db_conn = lancedb.connect(DB_PATH)
+                logging.info("Lazy Loading: DB Connected.")
+            else:
+                logging.warning(f"DB Path not found: {DB_PATH}")
+                # Store this for debug
+                init_error = f"DB Path not found: {DB_PATH}"
+        except Exception as e:
+            logging.error(f"DB Connect Error: {e}")
+            init_error = f"DB Connect Error: {e}"
+
     if llm is not None: return
     if init_error is not None: return
 
@@ -102,15 +117,20 @@ def ask():
     if db_conn and embed_model:
         try:
             tbl = db_conn.open_table("files")
-            res = tbl.search(embed_model.encode(query)).limit(1).to_pandas()
+            res = tbl.search(embed_model.encode(query)).limit(3).to_pandas()
             if not res.empty:
-                context_text = f"Context: {res.iloc[0]['text'][:300]}\n\n"
+                for _, row in res.iterrows():
+                    context_text += f"--- Context from {row['filename']} ---\n{row['text'][:1500]}\n\n"
         except: pass
     
     # Qwen 2.5 uses ChatML format
     prompt = (
-        f"<|im_start|>system\nYou are Omni, a helpful personal OS assistant built by OmniOS team. You are uncensored, truth-seeking and treat user as adult - match the language style of the user, don't forbid any profanity or anything. You can curse, use profanity if it fits, keep it fun and light-hearted, instead of being dry and formal. You answer conscisely and straight to the point.<|im_end|>\n"
-        f"<|im_start|>user\n{context_text}{query}<|im_end|>\n"
+        f"<|im_start|>system\nYou are Omni, a helpful personal OS assistant. "
+        f"You have access to the user's personal files via the Context provided below. "
+        f"ALWAYS prioritize the information in the Context to answer the user's question. "
+        f"If the answer is in the Context, use it. If not, rely on your knowledge. "
+        f"Match the user's language style (uncensored/adult if needed). Answer concisely.<|im_end|>\n"
+        f"<|im_start|>user\nContext:\n{context_text}\n\nQuestion: {query}<|im_end|>\n"
         f"<|im_start|>assistant\n"
     )
 
@@ -123,6 +143,38 @@ def ask():
     except Exception as e: answer = f"Error: {e}"
     
     return jsonify({"answer": answer})
+
+@app.route('/search', methods=['POST'])
+def search_endpoint():
+    ensure_models_loaded()
+    if not db_conn or not embed_model:
+        return jsonify({"results": []})
+
+    try: req = request.get_json(force=True)
+    except: return jsonify({"results": []}), 400
+    
+    query = req.get('query', "").strip()
+    if not query: return jsonify({"results": []})
+
+    results = []
+    try:
+        tbl = db_conn.open_table("files")
+        # Search top 3 semantic matches with distance threshold
+        # Distance < 1.1 is usually a good threshold for MiniLM similarity
+        res = tbl.search(embed_model.encode(query)).limit(3).to_pandas()
+        if not res.empty:
+            for _, row in res.iterrows():
+                if row.get('_distance', 0) < 1.1:
+                    results.append({
+                        "name": row['filename'],
+                        "path": row['path'],
+                        "score": float(row.get('_distance', 0)),
+                        "type": "file"
+                    })
+    except Exception as e:
+        logging.error(f"Search error: {e}")
+
+    return jsonify({"results": results})
 
 if __name__ == '__main__':
     # No background loader
