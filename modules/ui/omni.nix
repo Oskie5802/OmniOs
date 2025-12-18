@@ -14,10 +14,8 @@ let
     from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLineEdit, 
                                  QListWidget, QListWidgetItem, QFrame, QAbstractItemView,
                                  QGraphicsDropShadowEffect)
-    from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QPoint, QRect, QEvent
+    from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QPoint, QRect
     from PyQt6.QtGui import QColor, QFont, QIcon
-    import traceback
-
 
     # CONFIG
     BRAIN_URL = "http://127.0.0.1:5500/ask"
@@ -73,11 +71,10 @@ let
         background-color: transparent;
         border: none;
         padding: 12px;
-        icon-size: 32px;
     }
     
     QListWidget::item {
-        padding: 10px 20px;
+        padding: 14px 20px;
         margin-bottom: 4px;
         border-radius: 16px;
         color: #1d1d1f;
@@ -182,7 +179,6 @@ let
             self.input_field.setPlaceholderText("Search or ask Omni...")
             self.input_field.textChanged.connect(self.on_text_changed)
             self.input_field.returnPressed.connect(self.on_entered)
-            self.input_field.installEventFilter(self) # Capture keys
             
             # Divider
             self.divider = QFrame()
@@ -266,22 +262,6 @@ let
             self.anim_geo.start()
             self.anim_opa.start()
             
-        def eventFilter(self, obj, event):
-            if obj == self.input_field and event.type() == QEvent.Type.KeyPress:
-                key = event.key()
-
-                if key == Qt.Key.Key_Down:
-                    current = self.list_widget.currentRow()
-                    if current < self.list_widget.count() - 1:
-                        self.list_widget.setCurrentRow(current + 1)
-                    return True
-                elif key == Qt.Key.Key_Up:
-                    current = self.list_widget.currentRow()
-                    if current > 0:
-                        self.list_widget.setCurrentRow(current - 1)
-                    return True
-            return super().eventFilter(obj, event)
-
         def load_apps(self):
             apps = []
             paths = ["/run/current-system/sw/share/applications", os.path.expanduser("~/.nix-profile/share/applications")]
@@ -291,33 +271,11 @@ let
                 try:
                     for f in os.listdir(p):
                         if f.endswith(".desktop"):
-                            full_path = os.path.join(p, f)
-                            
-                            # Defaults
                             name = f.replace(".desktop", "").replace("-", " ").title()
-                            icon = "application-x-executable"
-                            no_display = False
-                            
-                            try:
-                                with open(full_path, 'r', errors='ignore') as df:
-                                    for line in df:
-                                        stripped = line.strip()
-                                        if stripped.startswith("[") and stripped != "[Desktop Entry]":
-                                            break # Stop parsing if we hit a new section (e.g. Actions)
-
-                                        if stripped.startswith("Name="):
-                                            name = stripped.split("=", 1)[1]
-                                        elif stripped.startswith("Icon="):
-                                            icon = stripped.split("=", 1)[1]
-                                        elif stripped.startswith("NoDisplay=true"):
-                                            no_display = True
-                            except:
-                                pass # If reading fails, just use filename fallback
-                            
-                            if no_display: continue
                             if name in seen: continue
                             seen.add(name)
-                            apps.append({"name": name, "path": full_path, "icon": icon, "type": "app"})
+                            full_path = os.path.join(p, f)
+                            apps.append({"name": name, "path": full_path, "type": "app"})
                 except: continue
             return sorted(apps, key=lambda x: x['name'])
 
@@ -332,7 +290,6 @@ let
                 for p in paths:
                     if not p: continue
                     name = os.path.basename(p)
-                    if not name: name = p # Fallback if basename is empty
                     is_dir = os.path.isdir(p)
                     icon = "folder" if is_dir else "text-x-generic"
                     items.append({"name": name, "path": p, "icon": icon, "type": "file"})
@@ -350,55 +307,45 @@ let
             # 1. AI Item (Always created but placed efficiently)
             display_text = f"Ask Omni: {query}" if query else "Ask Omni..."
             ai_item = QListWidgetItem(display_text)
-            ai_item.setIcon(QIcon.fromTheme("system-search"))
             ai_item.setData(Qt.ItemDataRole.UserRole, {"type": "ai", "query": query})
             
-            # 2. Apps
             query_lower = query.lower()
+            
+            # 2. FILTERED APPS
             app_matches = []
             for app in self.apps:
+                if count > 8: break 
                 if query_lower in app['name'].lower():
                     app_matches.append(app)
             
-            # 3. Files
+            # 3. FILES (Only if query present)
             file_matches = []
             if query:
                 file_matches = self.search_files(query)
 
-            # --- SMART ORDERING ---
-            final_items = []
+            # Combine Results (max 8 items total)
+            remaining_slots = 9 
             
-            # If we have app matches, show them first!
-            if app_matches:
-                # Add apps
-                for app in app_matches[:9]: # Limit apps
-                    item = QListWidgetItem(app['name'])
-                    if app['icon']:
-                        if os.path.isabs(app['icon']) and os.path.exists(app['icon']):
-                             item.setIcon(QIcon(app['icon']))
-                        else:
-                             item.setIcon(QIcon.fromTheme(app['icon']))
-                    item.setData(Qt.ItemDataRole.UserRole, app)
-                    final_items.append(item)
+            # Apps first
+            for app in app_matches[:remaining_slots]:
+                item = QListWidgetItem(app['name'])
+                if app['icon']:
+                    if os.path.isabs(app['icon']) and os.path.exists(app['icon']):
+                         item.setIcon(QIcon(app['icon']))
+                    else:
+                         item.setIcon(QIcon.fromTheme(app['icon']))
+                item.setData(Qt.ItemDataRole.UserRole, app)
+                self.list_widget.addItem(item)
+                remaining_slots -= 1
                 
-                # Then AI
-                final_items.append(ai_item)
-            else:
-                # No apps? AI comes first
-                final_items.append(ai_item)
-            
             # Then files
-            remaining_slots = 10 - len(final_items)
             for f in file_matches[:remaining_slots]:
                  item = QListWidgetItem(f['name'])
+                 # Try to be smarter with file icons if possible, but generic fallback is fine
                  item.setIcon(QIcon.fromTheme(f['icon'])) 
                  item.setToolTip(f['path'])
                  item.setData(Qt.ItemDataRole.UserRole, f)
-                 final_items.append(item)
-            
-            # Add to widget
-            for item in final_items:
-                self.list_widget.addItem(item)
+                 self.list_widget.addItem(item)
 
             self.list_widget.setCurrentRow(0)
 
@@ -424,20 +371,13 @@ let
                 self.start_ai_inference(query)
                 
             elif data['type'] == 'app':
-                subprocess.Popen(["dex", data['path']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.close()
-
-                
-            elif data['type'] == 'file':
-                # Open files/folders with xdg-open
-                subprocess.Popen(["xdg-open", data['path']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(["kstart6", data['path']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 self.close()
 
         def start_ai_inference(self, query):
             self.list_widget.clear()
             
             loading_item = QListWidgetItem("Thinking...")
-            loading_item.setIcon(QIcon.fromTheme("system-run"))
             loading_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.list_widget.addItem(loading_item)
             
@@ -455,7 +395,6 @@ let
             self.list_widget.clear()
             
             answer_item = QListWidgetItem(answer)
-            answer_item.setIcon(QIcon.fromTheme("dialog-information"))
             self.list_widget.addItem(answer_item)
             
             subprocess.run(["xclip", "-selection", "clipboard"], input=answer.encode(), stderr=subprocess.DEVNULL)
@@ -465,15 +404,10 @@ let
                 self.close()
 
     if __name__ == "__main__":
-        try:
-            app = QApplication(sys.argv)
-            window = OmniWindow()
-            window.show()
-            sys.exit(app.exec())
-        except Exception as e:
-            with open("/tmp/omni_crash.log", "w") as f:
-                f.write(traceback.format_exc())
-
+        app = QApplication(sys.argv)
+        window = OmniWindow()
+        window.show()
+        sys.exit(app.exec())
   '';
 
   # --- 3. WRAPPER ---
@@ -493,7 +427,7 @@ let
 in
 {
   environment.systemPackages = with pkgs; [
-    omniLauncher omniDesktopItem xclip libnotify kdePackages.kservice papirus-icon-theme fd dex
+    omniLauncher omniDesktopItem xclip libnotify kdePackages.kservice papirus-icon-theme
   ];
   # Manrope: A modern, geometric sans-serif that is excellent for UI clarity and style.
   fonts.packages = with pkgs; [ manrope ];
