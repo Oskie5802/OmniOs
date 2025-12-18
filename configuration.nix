@@ -3,6 +3,7 @@
 {
   imports = [
     ./modules/qemu/qemu_fix.nix
+    ./modules/qemu/graphics.nix
     ./modules/system/boot.nix
     ./modules/system/user.nix
     ./modules/system/packages.nix

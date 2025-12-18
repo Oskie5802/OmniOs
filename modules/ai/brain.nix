@@ -3,12 +3,9 @@
 let
 
 # --- CONFIGURATION ---
-# modelName = "granite-3.1-2b-instruct.Q4_K_M.gguf";
-modelName = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
-#modelHash = "0yf5zbcnv2q236zjs4xbr17zkizhpcgqj0208w0jpdcmrb1y1a9d";
-modelHash = "1nx9sy9pnkl2hyv5wvwq03yccc8d84hxc0bd3yyibkfvky6dm93l";
-# modelUrl  = "https://huggingface.co/mradermacher/granite-3.1-2b-instruct-GGUF/resolve/main/granite-3.1-2b-instruct.Q4_K_M.gguf";
-modelUrl  = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf";
+modelName = "Qwen3-0.6B-Q8_0.gguf";
+modelHash = "0cdh7c26vlcv4l3ljrh7809cfhvh2689xfdlkd6kbmdd48xfcrcl";
+modelUrl  = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf";
 
 # --- BAKED IN MODEL ---
 builtInModel = pkgs.fetchurl {
@@ -112,9 +109,18 @@ def ask():
     
     query = req.get('query', ' '.strip()).strip()
     
+    # --- AUTOMONOUS DECISION: AI decides if context is needed ---
+    # Fast micro-pass to classify query: 1 = Personal/Factual (needs files), 2 = Casual/Generic
+    decision_prompt = f"<|im_start|>system\nDecision: 1 (Needs personal files) or 2 (Casual chat).<|im_end|>\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\nDecision:"
+    try:
+        decision_output = llm(decision_prompt, max_tokens=3, stop=["<|im_end|>", "\n"])
+        need_context = "1" in decision_output['choices'][0]['text']
+    except:
+        need_context = True # Fallback to search if decision fails
+    
     context_text = ""
-    # Retrieve context only if tools loaded
-    if db_conn and embed_model:
+    # Retrieve context only if AI decided it's needed
+    if db_conn and embed_model and need_context:
         try:
             tbl = db_conn.open_table("files")
             res = tbl.search(embed_model.encode(query)).limit(3).to_pandas()
@@ -123,31 +129,32 @@ def ask():
                     context_text += f"--- Context from {row['filename']} ---\n{row['text'][:1500]}\n\n"
         except: pass
     
-    # Qwen 2.5 uses ChatML format
+    # Dynamic instructional boost: if context exists, forbid actions
+    action_instruction = (
+        "**PERSONAL INFO FOUND:** Answer strictly using the context above. DO NOT use JSON actions. Answer as a conversational human." 
+        if context_text else 
+        "**ACTION CAPABILITIES:** If the user asks to 'open [app]' or 'search the web for [topic]', you MUST use JSON. Example: `{\"action\": \"browse\", \"url\": \"https://www.google.com/search?q=actual_topic\"}`. NEVER use the word 'query' as the search term."
+    )
+
     prompt = (
-        f"<|im_start|>system\nYou are Omni, a helpful personal OS assistant. "
-        f"You have access to the user's personal files via the Context provided below.\n\n"
-        f"**ACTION CAPABILITIES:**\n"
-        f"If the user wants you to do something on the system (like opening a browser, searching the web, or launching an app), you MUST include a JSON block at the end of your response like this:\n"
-        f"```json\n"
-        f"{{\"action\": \"browse\", \"url\": \"https://google.com/search?q=coffee+near+me\"}}\n"
-        f"```\n"
-        f"Actions support:\n"
-        f"- `browse`: Opens a URL. For searches, use a direct search engine URL.\n"
-        f"- `launch`: Opens a desktop application (by name or path).\n\n"
-        f"ALWAYS prioritize the information in the Context to answer the user's question. "
-        f"If the answer is in the Context, use it. If not, rely on your knowledge. "
-        f"Match the user's language style. Answer concisely.<|im_end|>\n"
-        f"<|im_start|>user\nContext:\n{context_text}\n\nQuestion: {query}<|im_end|>\n"
-        f"<|im_start|>assistant\n"
+        f"<|im_start|>system\nYou are Omni, a fast OS assistant. "
+        f"You have access to the user's files via Context. Treat Context as your own memory.\n\n"
+        f"**RULES:**\n"
+        f"1. If Context contains the answer, you MUST answer directly. DO NOT trigger a web search or app launch.\n"
+        f"2. {action_instruction}\n"
+        f"3. Be extremely concise. Use a helpful, conversational tone.<|im_end|>\n"
+        f"<|im_start|>user\nContext Info:\n{context_text or 'No context provided.'}\n\nQuestion: {query}<|im_end|>\n"
+        f"<|im_start|>assistant\n<think>\n"
     )
 
     try:
         output = llm(
-            prompt, max_tokens=256, stop=["<|im_start|>", "<|im_end|>", "<|endoftext|>"], 
-            echo=False, temperature=0.1, stream=False
+            prompt, max_tokens=384, stop=["<|im_start|>", "<|im_end|>", "<|endoftext|>"], 
+            echo=True, temperature=0.0 # Echo=True because we start the assistant with <think>
         )
-        answer = output['choices'][0]['text'].strip()
+        # Process output to get ONLY the assistant's part (it will include our prefixed <think>)
+        full_result = output['choices'][0]['text']
+        answer = full_result.split("<|im_start|>assistant\n")[-1].strip()
     except Exception as e: answer = f"Error: {e}"
     
     return jsonify({"answer": answer})

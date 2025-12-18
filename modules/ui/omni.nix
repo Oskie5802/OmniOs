@@ -13,7 +13,7 @@ let
     import requests
     from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLineEdit, 
                                  QListWidget, QListWidgetItem, QFrame, QAbstractItemView,
-                                 QGraphicsDropShadowEffect)
+                                 QGraphicsDropShadowEffect, QLabel, QScrollArea)
     from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QPoint, QRect, QEvent
     from PyQt6.QtGui import QColor, QFont, QIcon
     import traceback
@@ -52,7 +52,7 @@ let
     QLineEdit {
         background-color: transparent;
         border: none;
-        padding: 24px 28px;
+        padding: 20px 28px;
         font-size: 22px;
         font-weight: 500; 
         color: #000000;
@@ -75,7 +75,7 @@ let
     QListWidget {
         background-color: transparent;
         border: none;
-        padding: 12px;
+        padding: 4px 12px;
         icon-size: 32px;
     }
     
@@ -150,6 +150,133 @@ let
             except:
                 self.results_found.emit([], self.query)
 
+    class ThinkingWidget(QWidget):
+        def __init__(self, text, parent=None):
+            super().__init__(parent)
+            self.full_text = text
+            self.is_expanded = False
+            
+            self.main_layout = QVBoxLayout(self)
+            self.main_layout.setContentsMargins(0, 4, 0, 4) # Remove horizontal margins here, list handles it
+            self.main_layout.setSpacing(0)
+            
+            # Header acting as a button
+            self.header = QLabel("▾  Thinking")
+            self.header.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.header.setFixedHeight(34)
+            self.header.setMinimumWidth(120)
+            self.header.setStyleSheet("""
+                QLabel {
+                    background-color: rgba(0, 0, 0, 0.05);
+                    border-radius: 8px;
+                    padding: 0px 14px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: rgba(60, 60, 67, 0.5);
+                }
+                QLabel:hover {
+                    background-color: rgba(0, 0, 0, 0.08);
+                }
+            """)
+            self.header.mousePressEvent = self.toggle_expand
+            
+            # Scroll area for content
+            self.scroll_area = QScrollArea()
+            self.scroll_area.setWidgetResizable(True)
+            self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.scroll_area.setHidden(True)
+            self.scroll_area.setMaximumHeight(200)
+            self.scroll_area.setStyleSheet("""
+                QScrollArea {
+                    background-color: transparent;
+                    border: none;
+                    margin-top: 6px;
+                }
+                QScrollBar:vertical {
+                    border: none;
+                    background: transparent;
+                    width: 4px;
+                }
+                QScrollBar::handle:vertical {
+                    background: rgba(0, 0, 0, 0.1);
+                    border-radius: 2px;
+                }
+            """)
+            
+            self.content_label = QLabel(text)
+            self.content_label.setWordWrap(True)
+            self.content_label.setStyleSheet("""
+                QLabel {
+                    background-color: transparent;
+                    padding: 8px 12px 12px 12px;
+                    font-size: 14px;
+                    line-height: 1.5;
+                    color: rgba(60, 60, 67, 0.7);
+                    font-style: italic;
+                }
+            """)
+            self.scroll_area.setWidget(self.content_label)
+            
+            self.main_layout.addWidget(self.header)
+            self.main_layout.addWidget(self.scroll_area)
+            
+            # Initial size
+            self.setMinimumHeight(42)
+
+        def sizeHint(self):
+            # Stable width estimate: Window(720) - Margins(80) - ListPadding(24) = 616
+            w = 616
+            # Header (34) + Margins (4+4) = 42
+            h = 42 
+            if self.is_expanded:
+                content_h = self.content_label.heightForWidth(w) + 20
+                h += min(content_h, 200) + 6
+            return QSize(w, h)
+
+        def toggle_expand(self, event):
+            self.is_expanded = not self.is_expanded
+            self.scroll_area.setHidden(not self.is_expanded)
+            self.header.setText("▴ Thinking" if self.is_expanded else "▾ Thinking")
+            
+            # Update minimum height to help layout
+            self.setMinimumHeight(self.sizeHint().height())
+            self.update_item_size()
+
+        def update_item_size(self):
+            list_widget = self.window().findChild(QListWidget)
+            if list_widget:
+                for i in range(list_widget.count()):
+                    item = list_widget.item(i)
+                    if list_widget.itemWidget(item) == self:
+                        item.setSizeHint(self.sizeHint())
+                        break
+                # Trigger window height adjustment
+                if hasattr(self.window(), "adjust_window_height"):
+                    self.window().adjust_window_height()
+
+    class AnswerWidget(QWidget):
+        def __init__(self, text, parent=None):
+            super().__init__(parent)
+            self.layout = QVBoxLayout(self)
+            self.layout.setContentsMargins(15, 5, 15, 5)
+            self.layout.setSpacing(0)
+            
+            self.label = QLabel(text)
+            self.label.setWordWrap(True)
+            self.label.setFont(QFont("Manrope", 20, QFont.Weight.Medium))
+            self.label.setStyleSheet("color: #1d1d1f; line-height: 1.3;")
+            
+            self.layout.addWidget(self.label)
+            
+        def sizeHint(self):
+            # Stable width estimate: Window(720) - Margins(80) - ListPadding(24) - WidgetInternalPadding(30) = 586
+            w = 586
+            # Reinforced buffer for 20pt font ascent/descent + margins
+            # Increasing from +30 to +45 to ensure last line is never cut
+            h = self.label.heightForWidth(w) + 45 
+            return QSize(w, h)
+
     class OmniWindow(QWidget):
         def __init__(self):
             super().__init__()
@@ -157,8 +284,10 @@ let
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setWindowIcon(QIcon(LOGO_PATH))
-            self.resize(720, 500) 
+            self.resize(720, 140) # Start minimal
             self.center()
+            # Remember initial top position for stability
+            self.initial_top = self.y()
             
             # Main Layout
             main_layout = QVBoxLayout(self)
@@ -215,9 +344,63 @@ let
 
             # Entry Animation
             self.animate_entry()
+            
+            # Initial height adjustment
+            self.adjust_window_height()
 
             # Search Worker
             self.search_worker = None
+
+        def adjust_window_height(self):
+            # 1. Precise Item Summation
+            list_h = 0
+            has_ai_answer = False
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                widget = self.list_widget.itemWidget(item)
+                # Check for AI Answer Widget to apply safety buffers
+                if widget and widget.__class__.__name__ == "AnswerWidget":
+                    has_ai_answer = True
+                list_h += item.sizeHint().height() + 6
+            
+            # 2. Window Content Height
+            # Shadow margins: 80 (40+40)
+            # Input Area: 74
+            # Divider: 1
+            # List Padding: 20 for AI answer (truncation safety), 4 for search
+            buffer = 20 if has_ai_answer else 4
+            target_list_h = list_h + buffer if self.list_widget.count() > 0 else 0
+            
+            target_h = 80 + 74 + 1 + target_list_h
+            
+            # 3. Strict Constraints
+            screen_geo = self.screen().availableGeometry()
+            screen_h = screen_geo.height()
+            screen_center_y = screen_geo.center().y()
+            
+            # Ultra Compact Max: 540px
+            target_h = min(target_h, 540)
+            
+            if self.list_widget.count() == 0:
+                target_h = 160 # Search-bar only
+
+            # 4. Animate Height & Y (for stable center)
+            if hasattr(self, 'height_anim') and self.height_anim.state() == QPropertyAnimation.State.Running:
+                self.height_anim.stop()
+
+            # Target Y aligns visual center
+            target_y = int(screen_center_y - 120 - (target_h / 2))
+
+            self.height_anim = QPropertyAnimation(self, b"geometry")
+            self.height_anim.setDuration(300) # Slightly faster
+            self.height_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+            
+            current_geo = self.geometry()
+            new_geo = QRect(current_geo.x(), target_y, current_geo.width(), int(target_h))
+            
+            self.height_anim.setStartValue(current_geo)
+            self.height_anim.setEndValue(new_geo)
+            self.height_anim.start()
 
         def handle_semantic_results(self, results, original_query):
             # Only update if the query hasn't changed significantly or if we want to show results anyway
@@ -241,11 +424,13 @@ let
                 
                 item = QListWidgetItem(res['name'])
                 item.setData(Qt.ItemDataRole.UserRole, res)
+                item.setSizeHint(QSize(600, 50)) # Explicit size for height calculation
                 self.list_widget.addItem(item)
                 added_count += 1
             
             if added_count > 0:
                 self.list_widget.scrollToBottom()
+                self.adjust_window_height()
 
         def center(self):
             qr = self.frameGeometry()
@@ -356,6 +541,7 @@ let
             display_text = f"Ask Omni: {query}" if query else "Ask Omni..."
             ai_item = QListWidgetItem(display_text)
             ai_item.setData(Qt.ItemDataRole.UserRole, {"type": "ai", "query": query})
+            ai_item.setSizeHint(QSize(600, 50)) # Explicit size
             
             # 2. Apps
             query_lower = query.lower()
@@ -383,6 +569,7 @@ let
                         else:
                              item.setIcon(QIcon.fromTheme(app['icon']))
                     item.setData(Qt.ItemDataRole.UserRole, app)
+                    item.setSizeHint(QSize(600, 50)) # Explicit size
                     final_items.append(item)
                 
                 # Then AI
@@ -395,9 +582,10 @@ let
             remaining_slots = 10 - len(final_items)
             for f in file_matches[:remaining_slots]:
                  item = QListWidgetItem(f['name'])
-                 item.setIcon(QIcon.fromTheme(f['icon'])) 
+                 item.setIcon(QIcon.fromTheme(f['icon']))
                  item.setToolTip(f['path'])
                  item.setData(Qt.ItemDataRole.UserRole, f)
+                 item.setSizeHint(QSize(600, 50)) # Explicit size
                  final_items.append(item)
             
             # Add to widget
@@ -405,6 +593,7 @@ let
                 self.list_widget.addItem(item)
 
             self.list_widget.setCurrentRow(0)
+            self.adjust_window_height()
 
             # 4. Trigger Semantic Search (Async)
             if len(query) > 1:
@@ -459,66 +648,135 @@ let
             self.input_field.setFocus()
             self.list_widget.clear()
             
-            # --- ACTION PARSING ---
+            # --- PARSING ---
             display_text = answer
             action_data = None
+            thinking_text = ""
             
+            # 1. Extract Thinking
+            # More robust: handle <think>...</think> OR just <think> if not closed
+            thinking_match = re.search(r'<think>(.*?)(?:</think>|$)', answer, re.DOTALL)
+            if thinking_match:
+                thinking_text = thinking_match.group(1).strip()
+                # Clean full match from display text
+                full_match_text = re.search(r'<think>.*?(?:</think>|$)', answer, re.DOTALL).group(0)
+                display_text = answer.replace(full_match_text, "").strip()
+            
+            # 2. Extract JSON Actions
             try:
                 # 1. Try to find JSON in code blocks
-                if "```json" in answer:
-                    parts = answer.split("```json")
+                if "```json" in display_text:
+                    parts = display_text.split("```json")
                     display_text = parts[0].strip()
                     json_str = parts[1].split("```")[0].strip()
                     action_data = json.loads(json_str)
                 else:
                     # 2. Try to find any {...} block using regex
-                    match = re.search(r'(\{.*\})', answer, re.DOTALL)
+                    match = re.search(r'(\{.*\})', display_text, re.DOTALL)
                     if match:
                         json_str = match.group(1)
                         action_data = json.loads(json_str)
-                        # If the whole answer was just JSON, give a default feedback
-                        if answer.strip() == json_str:
+                        # If the whole remaining answer was just JSON, give a default feedback
+                        if display_text.strip() == json_str:
                             display_text = "Executing action..."
                         else:
                             # Strip the JSON part from the display text
-                            display_text = answer.replace(json_str, "").strip()
+                            display_text = display_text.replace(json_str, "").strip()
             except Exception as e:
-                # For debugging: display_text = f"JSON Error: {e}\n{answer}"
                 pass
             
+            # 3. Clean up Punctuation (remove trailing ... or .)
+            display_text = display_text.rstrip(".… ")
+            
+            # --- UI CONSTRUCTION ---
+            
+            # Add Thinking Block if present
+            if thinking_text:
+                tw = ThinkingWidget(thinking_text)
+                item = QListWidgetItem(self.list_widget)
+                item.setSizeHint(tw.sizeHint())
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                self.list_widget.addItem(item)
+                self.list_widget.setItemWidget(item, tw)
+
             if display_text:
-                answer_item = QListWidgetItem(display_text)
+                aw = AnswerWidget(display_text)
+                answer_item = QListWidgetItem(self.list_widget)
                 answer_item.setFlags(answer_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                answer_item.setFont(QFont("Manrope", 20, QFont.Weight.Medium))
-                self.list_widget.addItem(answer_item)
                 
-                # Ensure the row is sized correctly for word wrap
-                idx = self.list_widget.row(answer_item)
-                self.list_widget.setCurrentRow(idx)
+                # Set size hint FIRST to help the list
+                answer_item.setSizeHint(aw.sizeHint())
+                
+                self.list_widget.addItem(answer_item)
+                self.list_widget.setItemWidget(answer_item, aw)
                 
                 subprocess.run(["xclip", "-selection", "clipboard"], input=display_text.encode(), stderr=subprocess.DEVNULL)
+            
+            self.adjust_window_height()
 
             # --- ACTION EXECUTION ---
             if action_data:
                 action = action_data.get("action")
-                if action == "browse":
-                    url = action_data.get("url")
-                    if url:
-                        subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                info_msg = ""
+                success = False
+                
+                try:
+                    if action == "browse":
+                        url = action_data.get("url") or action_data.get("link")
+                        if url:
+                            info_msg = f"Opening {url}..."
+                            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            success = True
+                    elif action == "search":
+                        query = action_data.get("query") or action_data.get("url")
+                        if query:
+                            # If it's not a URL, make it a search URL
+                            if not query.startswith("http"):
+                                url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                            else:
+                                url = query
+                            info_msg = f"Searching for '{query}'..."
+                            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            success = True
+                    elif action in ["launch", "open"]:
+                        name = action_data.get("name") or action_data.get("path") or action_data.get("app")
+                        if name:
+                            info_msg = f"Launching {name}..."
+                            # ... rest of launch logic
+                            found = False
+                            for app in self.apps:
+                                if name.lower() in app['name'].lower():
+                                    subprocess.Popen(["dex", app['path']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    found = True
+                                    break
+                            if not found:
+                                 subprocess.Popen(["xdg-open", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            success = True
+                    
+                    if success:
+                        # Update UI briefly before closing
+                        if not display_text or display_text == "Executing action...":
+                            self.list_widget.clear()
+                            item = QListWidgetItem(info_msg)
+                            item.setFont(QFont("Manrope", 20, QFont.Weight.Medium))
+                            self.list_widget.addItem(item)
+                        
+                        # Close after a tiny delay for feedback
+                        QThread.msleep(800) 
                         self.close()
-                elif action == "launch" or action == "open":
-                    name = action_data.get("name") or action_data.get("path")
-                    if name:
-                        # Try to find app in our list first
-                        found = False
-                        for app in self.apps:
-                            if name.lower() in app['name'].lower():
-                                subprocess.Popen(["dex", app['path']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                                found = True
-                                break
-                        if not found:
-                             subprocess.Popen(["xdg-open", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        self.close()
+                    else:
+                        # If we have action data but couldn't execute (missing fields), just show it
+                        if not display_text or display_text == "Executing action...":
+                             self.list_widget.clear()
+                             err_item = QListWidgetItem(f"Could not execute '{action}'. Missing parameters.")
+                             err_item.setForeground(QColor(200, 50, 50))
+                             self.list_widget.addItem(err_item)
+
+                except Exception as e:
+                    self.list_widget.clear()
+                    err_item = QListWidgetItem(f"System Error: {str(e)}")
+                    err_item.setForeground(QColor(200, 50, 50))
+                    self.list_widget.addItem(err_item)
 
         def keyPressEvent(self, event):
             if event.key() == Qt.Key.Key_Escape:
