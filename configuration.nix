@@ -1,4 +1,9 @@
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   imports = [
@@ -11,13 +16,12 @@
     ./modules/ui/theme.nix
     ./modules/ui/omni.nix
 
-    
-    
     # DODAJEMY NOWY PLIK:
-    ./modules/ui/topbar.nix 
+    ./modules/ui/topbar.nix
 
     ./modules/ai/memory.nix
     ./modules/ai/brain.nix
+    ./modules/system/searx.nix
   ];
 
   system.stateVersion = "25.12";
