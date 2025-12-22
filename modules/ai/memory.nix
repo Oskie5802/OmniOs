@@ -238,6 +238,14 @@ in
       ExecStart = "${indexerScript}/bin/ai-mem-daemon";
       Restart = "always";
       RestartSec = 5;
+      # --- RESOURCE LIMITS ---
+      CPUQuota = "20%";
+      MemoryHigh = "1024M";
+      MemoryMax = "1536M";
+      Nice = 19;
+      CPUSchedulingPolicy = "idle";
+      IOSchedulingClass = "idle";
+      IOSchedulingPriority = 7;
     };
   };
 }

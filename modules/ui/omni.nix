@@ -21,6 +21,20 @@ let
     import traceback
     import json
     import re
+    import logging
+
+    # --- LOGGING SETUP ---
+    logging.basicConfig(
+        filename="/tmp/omni_debug.log",
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+
+    def exception_hook(exctype, value, tb):
+        logging.critical("Uncaught exception:", exc_info=(exctype, value, tb))
+        sys.__excepthook__(exctype, value, tb)
+        
+    sys.excepthook = exception_hook
 
 
     # CONFIG
@@ -277,85 +291,146 @@ let
             
             # Layout
             layout = QHBoxLayout(self)
-            layout.setContentsMargins(20, 20, 20, 20)
-            layout.setSpacing(20)
+            layout.setContentsMargins(24, 24, 24, 24)
+            layout.setSpacing(24)
             
-            # 1. Avatar (Left)
+            # 1. Avatar (Vertical Portrait)
             self.avatar = QLabel()
-            self.avatar.setFixedSize(80, 80)
-            self.avatar.setStyleSheet("background-color: #E5E5EA; border-radius: 40px; border: 1px solid rgba(0,0,0,0.1);")
+            self.avatar.setFixedSize(100, 150)
+            self.avatar.setStyleSheet("background-color: #E5E5EA; border-radius: 12px; border: 1px solid rgba(0,0,0,0.05);")
             self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
             
             # 2. Info (Right)
             info_layout = QVBoxLayout()
-            info_layout.setSpacing(4)
+            info_layout.setSpacing(6)
+            info_layout.setContentsMargins(0, 4, 0, 0) 
             
-            name_label = QLabel(name)
-            name_label.setStyleSheet("font-size: 20px; font-weight: 700; color: #1d1d1f;")
-            name_label.setWordWrap(True)
+            # Clean Name
+            display_name = name.replace(" - Wikipedia", "").strip()
             
-            desc_label = QLabel(description)
-            desc_label.setStyleSheet("font-size: 14px; font-weight: 400; color: #636366; line-height: 1.4;")
-            desc_label.setWordWrap(True)
-            desc_label.setMaximumHeight(60) # Limit height
+            self.name_label = QLabel(display_name)
+            self.name_label.setFont(QFont("Manrope", 24, QFont.Weight.Bold))
+            self.name_label.setStyleSheet("color: #1d1d1f; letter-spacing: -0.5px;")
+            self.name_label.setWordWrap(True)
+            self.name_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+            
+            self.desc_label = QLabel(description)
+            self.desc_label.setFont(QFont("Manrope", 15, QFont.Weight.Normal))
+            self.desc_label.setStyleSheet("color: #3A3A3C; line-height: 1.4;")
+            self.desc_label.setWordWrap(True)
+            self.desc_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             
             # Small link indicator
-            link_label = QLabel(f"Source: {urlparse(url).netloc}" if url else "Unknown Source")
-            link_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #007AFF; margin-top: 4px;")
-
-            info_layout.addWidget(name_label)
-            info_layout.addWidget(desc_label)
-            info_layout.addWidget(link_label)
+            domain = urlparse(url).netloc.replace("www.", "")
+            self.link_label = QLabel(f"Source: {domain}" if url else "Unknown Source")
+            self.link_label.setFont(QFont("Manrope", 12, QFont.Weight.DemiBold))
+            self.link_label.setStyleSheet("color: #007AFF; margin-top: 8px;")
+            
+            info_layout.addWidget(self.name_label)
+            info_layout.addWidget(self.desc_label)
+            info_layout.addWidget(self.link_label)
             info_layout.addStretch()
             
-            layout.addWidget(self.avatar)
+            layout.addWidget(self.avatar, 0, Qt.AlignmentFlag.AlignTop)
             layout.addLayout(info_layout)
+            
+            # Default to Initials
+            self.avatar.setText(display_name[0])
+            self.avatar.setStyleSheet("background-color: #007AFF; color: white; font-size: 48px; font-weight: bold; border-radius: 12px;")
             
             if self.image_url:
                 threading.Thread(target=self._download_image, daemon=True).start()
-            else:
-                 self.avatar.setText(name[0])
-                 self.avatar.setStyleSheet("background-color: #007AFF; color: white; font-size: 32px; font-weight: bold; border-radius: 40px;")
 
         def _download_image(self):
             try:
-                headers = {"User-Agent": "Mozilla/5.0"}
-                r = requests.get(self.image_url, headers=headers, timeout=5)
+                # 0. Handle Data URIs (Base64)
+                if self.image_url.startswith("data:"):
+                    try:
+                        import base64
+                        header, encoded = self.image_url.split(",", 1)
+                        data = base64.b64decode(encoded)
+                        self.image_downloaded.emit(data)
+                        return
+                    except: pass
+
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+                }
+                
+                # verify=False to avoid SSL issues
+                r = requests.get(self.image_url, headers=headers, timeout=10, verify=False)
                 if r.status_code == 200:
                     self.image_downloaded.emit(r.content)
-            except: pass
+            except Exception as e:
+                print(f"Image download error: {e}")
 
         def update_image(self, data):
+            # 1. Safety Check
+            try:
+                if not self.avatar: return 
+            except RuntimeError:
+                return
+
             try:
                 pixmap = QPixmap()
                 pixmap.loadFromData(data)
                 if not pixmap.isNull():
-                    # Circular Crop
-                    size = 80
-                    rounded = QPixmap(size, size)
+                    # Target Size
+                    w, h = 100, 150
+                    rounded = QPixmap(w, h)
                     rounded.fill(Qt.GlobalColor.transparent)
                     
                     painter = QPainter(rounded)
-                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    path = QPainterPath()
-                    path.addEllipse(0, 0, size, size)
-                    painter.setClipPath(path)
-                    
-                    # Scale keeping aspect ratio to fill
-                    scaled = pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-                    
-                    # Center crop
-                    x = (scaled.width() - size) // 2
-                    y = (scaled.height() - size) // 2
-                    painter.drawPixmap(0, 0, scaled, -x, -y)
-                    painter.end()
+                    try:
+                        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                        path = QPainterPath()
+                        # Rounded Rect
+                        path.addRoundedRect(0, 0, w, h, 12, 12)
+                        painter.setClipPath(path)
+                        
+                        # Scale to cover (KeepAspectRatioByExpanding)
+                        scaled = pixmap.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                        
+                        # Center crop
+                        x = (scaled.width() - w) // 2
+                        y = (scaled.height() - h) // 2
+                        
+                        painter.drawPixmap(-x, -y, scaled)
+                    finally:
+                        painter.end()
                     
                     self.avatar.setPixmap(rounded)
                     self.avatar.setStyleSheet("background-color: transparent;")
-            except: pass
+                    self.avatar.repaint()
+            except Exception as e:
+                print(f"Error updating person image: {e}")
 
         def sizeHint(self):
-            return QSize(600, 120)
+            # Dynamic Height Calculation
+            # Available Width for Text = Window(720) - Margins/Pads(~150) - Avatar(100) - Spacing(24) ~= 440px
+            w_text = 440
+            
+            name_h = self.name_label.heightForWidth(w_text)
+            # 4. Accurate Height Calculation
+            # NOTE: Qt heightForWidth DOES NOT respect CSS line-height (1.4).
+            # We must apply the multiplier manually or the text will be cutoff.
+            desc_h_raw = self.desc_label.heightForWidth(w_text)
+            desc_h = int(desc_h_raw * 1.5) # 1.4 CSS + 0.1 Safety margin
+            
+            link_h = self.link_label.heightForWidth(w_text) + 8
+            
+            # Sum + Spacing
+            # We reduced the buffer from 30+20 to just 12px for tight fit
+            text_total_h = name_h + desc_h + link_h + 12 
+            
+            # Final Height
+            # Height must accommodate the 150px image + margins(24+24) = 198px minimum
+            img_min_h = 150 + 48
+            
+            final_h = max(img_min_h, text_total_h + 24)
+            
+            return QSize(600, final_h)
 
     class ActionWorker(QThread):
         action_found = pyqtSignal(object, str) # action_data (dict), query
@@ -511,6 +586,7 @@ let
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setWindowIcon(QIcon(LOGO_PATH))
+            self.setWindowTitle("Omni Intelligence")
             self.resize(720, 140) # Start minimal
             self.center()
             # Remember initial top position for stability
@@ -526,10 +602,10 @@ let
             
             # Soft High-End Drop Shadow
             shadow = QGraphicsDropShadowEffect(self)
-            shadow.setBlurRadius(60)
+            shadow.setBlurRadius(20) # Reduced from 60 to 20 for performance
             shadow.setXOffset(0)
-            shadow.setYOffset(20)
-            shadow.setColor(QColor(0, 0, 0, 30)) # Very subtle, pure black shadow
+            shadow.setYOffset(10)
+            shadow.setColor(QColor(0, 0, 0, 40)) 
             self.frame.setGraphicsEffect(shadow)
             
             # Inner Layout
@@ -599,7 +675,8 @@ let
                 list_h += item.sizeHint().height() + 6
             
             # 2. Window Content Height
-            # Shadow margins: 80 (40+40)
+            # Shadow margins: 80 (40+40) -> We reduced shadow so we can reduce margins, but keeping for safety
+            # But let's account for simpler shadow
             # Input Area: 74
             # Divider: 1
             # List Padding: 20 for AI answer (truncation safety), 4 for search
@@ -619,23 +696,10 @@ let
             if self.list_widget.count() == 0:
                 target_h = 160 # Search-bar only
 
-            # 4. Animate Height & Y (for stable center)
-            if hasattr(self, 'height_anim') and self.height_anim.state() == QPropertyAnimation.State.Running:
-                self.height_anim.stop()
-
-            # Target Y aligns visual center
+            # 4. Instant Geometry Change (No Animation to prevent rendering freeze)
             target_y = int(screen_center_y - 120 - (target_h / 2))
-
-            self.height_anim = QPropertyAnimation(self, b"geometry")
-            self.height_anim.setDuration(300) # Slightly faster
-            self.height_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
             
-            current_geo = self.geometry()
-            new_geo = QRect(current_geo.x(), target_y, current_geo.width(), int(target_h))
-            
-            self.height_anim.setStartValue(current_geo)
-            self.height_anim.setEndValue(new_geo)
-            self.height_anim.start()
+            self.setGeometry(self.x(), target_y, self.width(), int(target_h))
 
         def handle_semantic_results(self, results, original_query):
             # Only update if the query hasn't changed significantly or if we want to show results anyway
@@ -672,10 +736,13 @@ let
             if not action_data: return
             
             # Check if we already have an action item at top
+            # Check if we already have an action item at top
             first_item = self.list_widget.item(0)
-            if first_item and first_item.data(Qt.ItemDataRole.UserRole).get('type') == 'fast_action':
-                # Update existing? For now, easier to remove and re-add to handle widget reset
-                self.list_widget.takeItem(0)
+            if first_item:
+                data = first_item.data(Qt.ItemDataRole.UserRole)
+                if data and isinstance(data, dict) and data.get('type') == 'fast_action':
+                     # Update existing? For now, easier to remove and re-add to handle widget reset
+                     self.list_widget.takeItem(0)
             
             # Insert at top
             item = QListWidgetItem()
@@ -961,6 +1028,11 @@ let
                         url = action_data.get('url')
                         subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         self.close()
+                    elif action_data.get('type') == 'person':
+                        url = action_data.get('url')
+                        if url:
+                            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            self.close()
                     elif action_data.get('type') == 'calc':
                         val = action_data.get('content')
                         subprocess.run(["xclip", "-selection", "clipboard"], input=val.encode(), stderr=subprocess.DEVNULL)
@@ -1000,10 +1072,15 @@ let
             self.worker.start()
 
         def display_ai_result(self, answer):
-            self.input_field.setDisabled(False)
-            self.input_field.setStyleSheet("")
-            self.input_field.setFocus()
-            self.list_widget.clear()
+            logging.info("display_ai_result called.")
+            try:
+                self.input_field.setDisabled(False)
+                self.input_field.setStyleSheet("")
+                self.input_field.setFocus()
+                self.list_widget.clear()
+                logging.info(f"Raw Answer length: {len(answer)}")
+            except Exception as e:
+                 logging.error(f"Error resetting UI: {e}")
             
             # --- PARSING ---
             display_text = answer
@@ -1050,10 +1127,11 @@ let
             # Add Thinking Block if present
             if thinking_text:
                 tw = ThinkingWidget(thinking_text)
+                # Pass parent to automatically add to list
                 item = QListWidgetItem(self.list_widget)
                 item.setSizeHint(tw.sizeHint())
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                self.list_widget.addItem(item)
+                # self.list_widget.addItem(item) <--- REMOVED REDUNDANT CALL
                 self.list_widget.setItemWidget(item, tw)
 
             if display_text:
@@ -1064,10 +1142,12 @@ let
                 # Set size hint FIRST to help the list
                 answer_item.setSizeHint(aw.sizeHint())
                 
-                self.list_widget.addItem(answer_item)
+                # self.list_widget.addItem(answer_item) <--- REMOVED REDUNDANT CALL
                 self.list_widget.setItemWidget(answer_item, aw)
                 
-                subprocess.run(["xclip", "-selection", "clipboard"], input=display_text.encode(), stderr=subprocess.DEVNULL)
+                try:
+                    subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).communicate(input=display_text.encode())
+                except: pass
             
             self.adjust_window_height()
 
@@ -1142,6 +1222,9 @@ let
     if __name__ == "__main__":
         try:
             app = QApplication(sys.argv)
+            app.setApplicationName("Omni")
+            app.setApplicationDisplayName("Omni")
+            app.setDesktopFileName("omni-bar")
             window = OmniWindow()
             window.show()
             sys.exit(app.exec())
@@ -1160,6 +1243,8 @@ let
   omniDesktopItem = pkgs.makeDesktopItem {
     name = "omni-bar";
     desktopName = "Omni";
+    genericName = "Universal Search & AI";
+    comment = "Your intelligent companion for search and system control";
     exec = "${openOmniScript}/bin/open-omni";
     icon = "${../../assets/logo-trans.png}";
     categories = [ "Utility" ];

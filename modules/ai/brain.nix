@@ -163,7 +163,7 @@ let
                 llm = Llama(
                     model_path=MODEL_PATH, 
                     n_ctx=4096,
-                    n_threads=2, 
+                    n_threads=1, 
                     n_batch=256, 
                     n_gpu_layers=0, 
                     verbose=False
@@ -188,7 +188,6 @@ let
                 'q': query,
                 'format': 'json',
                 'categories': 'general',
-                'language': 'en-US'
             }
             resp = requests.get(SEARXNG_URL, params=params, timeout=10)
             if resp.status_code != 200: return f"Error: Search status {resp.status_code}."
@@ -230,42 +229,75 @@ let
 
     def get_person_result(name):
         """Search for a Person and return rich card details (Image context)"""
+        logging.info(f"DEBUG: get_person_result called for '{name}'")
         try:
-            # 1. General Search for bio/description
-            params = {'q': name, 'format': 'json', 'categories': 'general'}
-            resp = requests.get(SEARXNG_URL, params=params, timeout=3.0)
+            # 1. Search for the most likely Wikipedia Page
+            params = {'q': f"{name} wikipedia", 'format': 'json', 'categories': 'general', 'language': 'en-US'}
+            resp = requests.get(SEARXNG_URL, params=params, timeout=5.0)
+            
+            wiki_title = None
+            wiki_url = None
             
             if resp.status_code == 200:
-                data = resp.json()
-                results = data.get('results', [])
-                if not results: return None
-                
-                # Pick the most relevant result (usually Wikipedia or a bio site)
-                best_match = results[0]
-                
-                # 2. Image Search (concise)
-                # We try to get an image specifically for this person
-                image_url = None
-                img_params = {'q': name, 'format': 'json', 'categories': 'images'}
+                results = resp.json().get('results', [])
+                for res in results:
+                    url = res.get('url', ' '.strip())
+                    if "wikipedia.org/wiki/" in url:
+                        wiki_url = url
+                        # Extract title from URL (last part)
+                        wiki_title = url.split("wikipedia.org/wiki/")[-1]
+                        break
+            
+            # 2. If we found a Wiki page, use the Official Wiki API for clean data
+            if wiki_title:
                 try:
-                    img_resp = requests.get(SEARXNG_URL, params=img_params, timeout=2.0)
-                    if img_resp.status_code == 200:
-                        img_results = img_resp.json().get('results', [])
-                        if img_results:
-                            image_url = img_results[0].get('img_src') or img_results[0].get('url')
-                except: pass
+                    logging.info(f"Fetching Wiki Summary for: {wiki_title}")
+                    # Standard Wikipedia REST API
+                    api_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{wiki_title}"
+                    api_resp = requests.get(api_url, timeout=5.0)
+                    
+                    if api_resp.status_code == 200:
+                        data = api_resp.json()
+                        return {
+                            "type": "person",
+                            "name": data.get('title', name),
+                            "description": data.get('extract', 'No description available.'),
+                            "url": wiki_url,
+                            "image": data.get('thumbnail', {}).get('source')
+                        }
+                except Exception as e:
+                    logging.error(f"Wiki API failed: {e}")
 
-                # Result
-                return {
-                    "type": "person", 
-                    "name": best_match.get('title', name),
-                    "description": best_match.get('content') or best_match.get('snippet', 'No description available.'),
-                    "url": best_match.get('url'),
-                    "image": image_url
-                }
+            # 3. Fallback: Generic Search (if no wiki found or api failed)
+            logging.info("Falling back to generic search for person...")
+            params = {'q': name, 'format': 'json', 'categories': 'general', 'language': 'en-US'}
+            resp = requests.get(SEARXNG_URL, params=params, timeout=5.0)
+            
+            if resp.status_code == 200:
+                results = resp.json().get('results', [])
+                if results:
+                    best = results[0]
+                    # Try to get an image via image search
+                    image_url = None
+                    try:
+                        img_search = requests.get(SEARXNG_URL, params={'q': name, 'format': 'json', 'categories': 'images'}, timeout=4.0)
+                        if img_search.status_code == 200:
+                             imgs = img_search.json().get('results', [])
+                             if imgs: image_url = imgs[0].get('thumbnail_src') or imgs[0].get('url')
+                    except: pass
+                    
+                    return {
+                        "type": "person",
+                        "name": best.get('title', name),
+                        "description": best.get('content') or best.get('snippet', ' '.strip()),
+                        "url": best.get('url'),
+                        "image": image_url
+                    }
+
         except Exception as e:
              logging.error(f"Person lookup failed: {e}")
         return None
+
 
     def perform_calculation(expression):
         logging.info(f"Performing Calculation for: {expression}")
@@ -505,12 +537,38 @@ let
             # Case B2: Person Card
             elif "PERSON:" in result_text:
                 name = result_text.split("PERSON:")[1].strip()
+                
+                # STRICT MATCHING: Rejct single-word generic queries (e.g. "John", "Steve")
+                # We require at least 2 words (e.g. "Steve Jobs") for a Person Card to trigger automatically.
+                if len(name.split()) < 2:
+                    logging.info(f"Rejected Person Card for generic/short name: '{name}'. Falling back to Search.")
+                    rich_res = get_navigation_result(name)
+                    if rich_res:
+                         return jsonify({
+                             "action": {
+                                 "type": "link",
+                                 "url": rich_res['url'],
+                                 "title": rich_res['title'],
+                                 "description": rich_res['description']
+                             }
+                         })
+                    else:
+                        return jsonify({"action": {"type": "link", "url": f"https://www.google.com/search?q={name}", "title": name, "description": "Search Result"}})
+
                 person_card = get_person_result(name)
                 if person_card:
                     return jsonify({"action": person_card})
                 else:
-                    # Fallback to standard search
-                    return jsonify({"action": {"type": "link", "url": f"https://www.google.com/search?q={name}", "title": name, "description": "Search Result"}})
+                    # Fallback to BASIC Person Card (Initials only)
+                    return jsonify({
+                        "action": {
+                            "type": "person", 
+                            "name": name.title(),
+                            "description": "Press Enter to search info.",
+                            "url": f"https://www.google.com/search?q={name}",
+                            "image": None
+                        }
+                    })
 
             # Case C: Open URL directly from Model
             elif result_text.startswith("Open http"):
@@ -552,8 +610,29 @@ let
             logging.error(f"Action Inference Error: {e}")
             return jsonify({"action": None, "error": str(e)})
 
+    # --- BACKGROUND LOADER ---
+    def _startup_sequence():
+        """Gentle sequence to load models without freezing the UI"""
+        logging.info("Startup: Waiting 5s for system stability...")
+        time.sleep(5)
+        
+        # 1. Fast Model (Small)
+        logging.info("Startup: Triggering Fast Model...")
+        ensure_fast_model()
+        
+        # 2. Safety Buffer (Let Fast Model get a head start causing the lock to engage)
+        time.sleep(2)
+        
+        # 3. Main Model (Large) - Will wait for Fast Model to release lock
+        logging.info("Startup: Queueing Main Model...")
+        # ensure_main_model runs synchronously in this thread, waiting for lock
+        ensure_main_model()
+        logging.info("Startup: Sequence Complete.")
+
     if __name__ == '__main__':
-        # No background loader
+        # --- PRE-LOAD MODELS ON START -----
+        threading.Thread(target=_startup_sequence, daemon=True).start()
+
         app.run(host='127.0.0.1', port=5500, threaded=True)
 
   '';
@@ -589,6 +668,12 @@ in
       ExecStart = "${brainWrapper}/bin/start-brain-safe";
       Restart = "always";
       RestartSec = 5;
+      
+      # --- RESOURCE PROTECTION ---
+      CPUQuota = "150%";       # Max 1.5 cores (out of 4)
+      MemoryHigh = "3072M";    # Throttle at 3GB
+      MemoryMax = "4096M";     # Kill at 4GB
+      
       Nice = 19;
       CPUSchedulingPolicy = "idle";
       IOSchedulingClass = "idle";
