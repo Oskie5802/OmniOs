@@ -31,4 +31,4 @@ def test_person_search(name):
         print(f"Exception: {e}")
 
 if __name__ == "__main__":
-    test_person_search("Steve Jobs")
+    test_person_search("Mikołaj Piech")

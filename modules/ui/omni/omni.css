@@ -1,0 +1,86 @@
+/* Global Reset */
+* {
+    font-family: "Manrope", "Urbanist", sans-serif;
+    outline: none;
+}
+
+/* Main Window Container */
+QWidget {
+    background-color: transparent;
+    color: #1d1d1f; /* Apple Text Black */
+}
+
+/* The Content Card */
+QFrame#MainFrame {
+    background-color: rgba(255, 255, 255, 0.92); /* Frosted White */
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 24px;
+}
+
+/* Input Field */
+QLineEdit {
+    background-color: transparent;
+    border: none;
+    padding: 20px 28px;
+    font-size: 22px;
+    font-weight: 500; 
+    color: #000000;
+    selection-background-color: #A3D3FF;
+}
+QLineEdit::placeholder {
+    color: rgba(60, 60, 67, 0.3); /* Apple Secondary Label */
+    font-weight: 400;
+}
+
+/* Divider Line */
+QFrame#Divider {
+    background-color: rgba(60, 60, 67, 0.1); /* Subtle Separator */
+    min-height: 1px;
+    max-height: 1px;
+    margin: 0px 24px;
+}
+
+/* Result List */
+QListWidget {
+    background-color: transparent;
+    border: none;
+    padding: 4px 12px;
+    icon-size: 32px;
+}
+
+QListWidget::item {
+    padding: 12px 20px;
+    margin-bottom: 6px;
+    border-radius: 16px;
+    color: #1d1d1f;
+    font-size: 18px;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+/* Selected Item (The "Active" State) */
+QListWidget::item:selected {
+    background-color: rgba(0, 0, 0, 0.06); /* Subtle Light Gray Accent */
+    color: #1d1d1f;
+    font-weight: 600;
+    border: none;
+}
+
+/* Scrollbar Styling (Hidden/Minimalist) */
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 8px; /* Slightly wider for better interaction */
+    margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background: rgba(0, 0, 0, 0.15); /* Soft Gray Handle */
+    min-height: 40px;
+    border-radius: 4px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}

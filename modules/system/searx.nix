@@ -43,6 +43,21 @@
           enabled = true;
         }
         {
+          name = "google";
+          engine = "google";
+          enabled = true;
+        }
+        {
+          name = "bing";
+          engine = "bing";
+          enabled = true;
+        }
+        {
+          name = "qwant";
+          engine = "qwant";
+          enabled = true;
+        }
+        {
           name = "wikipedia";
           engine = "wikipedia";
           enabled = true;

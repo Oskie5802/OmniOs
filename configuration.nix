@@ -14,13 +14,13 @@
     ./modules/system/packages.nix
     ./modules/ui/desktop.nix
     ./modules/ui/theme.nix
-    ./modules/ui/omni.nix
+    ./modules/ui/omni/omni.nix
 
     # DODAJEMY NOWY PLIK:
     ./modules/ui/topbar.nix
 
     ./modules/ai/memory.nix
-    ./modules/ai/brain.nix
+    ./modules/ai/brain/brain.nix
     ./modules/system/searx.nix
   ];
 

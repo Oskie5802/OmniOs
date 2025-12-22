@@ -3,7 +3,7 @@
 {
   # --- SKRYPTY STARTOWE ---
   system.activationScripts.setupUserConfig = lib.mkAfter ''
-    USER_HOME="/home/omnios"
+    USER_HOME="${config.users.users.omnios.home}"
     CONFIG_DIR="$USER_HOME/.config"
     
     if [ -d "$USER_HOME" ]; then
@@ -77,7 +77,7 @@ echo "✅ Done. Try pressing Ctrl + Space."
 EOF
       chmod +x "$USER_HOME/bin/fix-omni"
 
-      chown -R omnios:users "$USER_HOME"
+      chown -R ${config.users.users.omnios.name}:users "$USER_HOME"
     fi
   '';
 }
