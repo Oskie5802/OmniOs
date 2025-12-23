@@ -1,13 +1,8 @@
-
-Linux:
+# Running with VM on Linux:
 nix run .#run-vm --impure
 
+# Running with VM on Linux with all GPU layers:
 N_GPU_LAYERS=999 nix run .#run-vm --impure
 
-
-MacOS:
-nix --extra-experimental-features "nix-command flakes" run . --impure
-
-
-Downloading the AI model BEFORE:
-nix-prefetch-url https://huggingface.co/mradermacher/granite-3.1-2b-instruct-GGUF/resolve/main/granite-3.1-2b-instruct.Q6_K.gguf
+# Building ISO:
+nix build .#install-iso

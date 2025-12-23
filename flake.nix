@@ -25,6 +25,7 @@
         format = "vm";
         modules = [
           ./configuration.nix
+          ./modules/qemu/graphics.nix
           ( { lib, pkgs, ... }: {
             virtualisation.memorySize = lib.mkForce 8192;
             virtualisation.cores = lib.mkForce 4;

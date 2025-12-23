@@ -7,6 +7,7 @@
     diskSize = 8192;
     cores = 6;
     graphics = true; # włączone (GUI QEMU) — GL wyłączone (software rendering)
+    useEFIBoot = true; # Enforce UEFI for VM
     
     qemu.options = [
       # virtio-vga jest stabilniejsze dla kursora niż virtio-gpu-pci w trybie bez GL

@@ -105,10 +105,10 @@ in
   # 0. Bootloader & Virtualisation
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
-  boot.loader.timeout = 0;
+  boot.loader.timeout = lib.mkForce 0;
   
-  # Use UEFI for the VM (replaces SeaBIOS with OVMF)
-  virtualisation.useEFIBoot = true;
+  # Use UEFI for the VM (Moved to VM config)
+  # virtualisation.useEFIBoot = true;
 
   environment.systemPackages = [ customKdeSplash ];
 
@@ -136,7 +136,7 @@ in
   
   # 4. Systemd Silence
   boot.initrd.systemd.enable = true;
-  boot.initrd.systemd.emergencyAccess = false;
+  boot.initrd.systemd.emergencyAccess = lib.mkForce false;
   
   boot.initrd.systemd.settings.Manager = {
     ShowStatus = "no";
