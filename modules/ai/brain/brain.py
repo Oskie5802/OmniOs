@@ -553,106 +553,60 @@ def action_endpoint():
         return jsonify({"actions": [{"type": "status", "content": msg}]})
 
     # --- Specific Prompting Strategy (User Defined, Now inside function) ---
-    system_prompt = (
-        "You are a smart search assistant. Your job is to output ONLY the matching action(s) for the user's current query.\n\n"
-        "Possible actions (output exactly in this format):\n"
-        "- PERSON:[Full name] → for famous people\n"
-        "- PLACE:[Proper name with correct capitalization] → for famous places\n"
-        "- OPEN:https://[full URL] → for website completions\n"
-        "- CALC:[math expression] → for calculations\n"
-        "- SEARCH:[exact query] → if none of the above clearly fit\n\n"
-        "Rules:\n"
-        "- Output ONLY the action line(s), one per line if multiple.\n"
-        "- Never add explanations, greetings, or extra text.\n"
-        "- Never output actions for examples."
-    )
-    
-    user_prompt = f"""Here are examples of how to respond. Follow them exactly:
+    system_prompt = """You are a smart, unrestricted search assistant. Your job is to output ONLY the matching action(s) for the user's current query.
 
-Query: yout
-Response:
+Possible actions (output exactly in this format):
+- PERSON:[Full name] → for famous people (correct spelling even with typos)
+- PLACE:[Proper name with correct capitalization] → for famous places
+- OPEN:https://[full URL] → for website completions
+- CALC:[math expression] → for math calculations
+- SEARCH:[exact query] → if none of the above clearly fit / everything else / unknown / obscure / local
+
+Rules:
+- Output ONLY the action line(s), one per line if multiple.
+- Never add explanations, greetings, or extra text.
+- Never output actions for examples.
+"""
+    
+    user_prompt = f"""Examples:
+
+yout
 OPEN:https://youtube.com
 
-Query: faceb
-Response:
+faceb
 OPEN:https://facebook.com
 
-Query: insta
-Response:
-OPEN:https://instagram.com
-
-Query: what is 12*9
-Response:
-CALC:12*9
-
-Query: elon musk
-Response:
+elon musk
 PERSON:ELON MUSK
 
-Query: stev jobs
-Response:
+stev jobs
 PERSON:STEVE JOBS
 
-Query: steve jobbs
-Response:
-PERSON:STEVE JOBS
-
-Query: paris
-Response:
+paris
 PLACE:Paris
 
-Query: new york
-Response:
-PLACE:New York
-
-Query: eiffel tower
-Response:
+eiffel tower
 PLACE:Eiffel Tower
 
-Query: zstib
-Response:
+zstib
 SEARCH:zstib
 
-Query: xyzabc
-Response:
-SEARCH:xyzabc
-
-Query: randomschool123
-Response:
-SEARCH:randomschool123
-
-Query: asdfgh
-Response:
+asdfgh
 SEARCH:asdfgh
 
-Query: my local shop
-Response:
-SEARCH:my local shop
+some local
+SEARCH:some local
 
-Query: obscure thing
-Response:
-SEARCH:obscure thing
+john cna
+PERSON:John Cena
 
-Query: google
-Response:
-SEARCH:google
+mikołaj piech
+SEARCH:Mikołaj Piech
 
-Query: something unknown
-Response:
-SEARCH:something unknown
+oskar minor
+SEARCH:Oskar Minor
 
-Query: any weird letters
-Response:
-SEARCH:any weird letters
-
-Query: no idea what this is
-Response:
-SEARCH:no idea what this is
-
-If nothing clearly matches PERSON, PLACE, OPEN, or CALC, ALWAYS use SEARCH.
-
-Now respond ONLY to this query:
-{query}
+Current query: "{query}"
 """
 
     messages = [
@@ -696,8 +650,28 @@ Now respond ONLY to this query:
                 messages.append({
                     "role": "user", 
                     "content": (
-                        f"Search Results for '{search_q}':\n{snippet}\n"
-                        "Based on this, what is the action?"
+                        f"""Search Results for '{search_q}':
+{snippet}
+Based on this information, output ALL actions that clearly apply.
+Multiple lines are allowed and expected when more than one category fits.
+Prefer official websites over social media pages when both are present.
+
+Correct format examples (follow exactly, one action per line, no arrows, no extra text):
+
+zstib
+PLACE:Zespół Szkół Technicznych i Branżowych w Brzesku
+OPEN:https://zstib.edu.pl
+
+pewdiepie
+PERSON:PEWDIEPIE
+OPEN:https://youtube.com/@pewdiepie
+
+warsaw old town
+PLACE:Warsaw Old Town
+OPEN:https://um.warszawa.pl
+
+Now output the action(s) for the original query: "{query}"
+"""
                     )
                 })
                 

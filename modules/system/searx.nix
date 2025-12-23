@@ -40,12 +40,12 @@
         {
           name = "duckduckgo";
           engine = "duckduckgo";
-          enabled = false;
+          enabled = true;
         }
         {
           name = "google";
           engine = "google";
-          enabled = true;
+          enabled = false; # Keep enabled, but rely on others if it fails
         }
         {
           name = "bing";
