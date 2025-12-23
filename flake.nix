@@ -25,9 +25,15 @@
         format = "vm";
         modules = [
           ./configuration.nix
-          ( { lib, ... }: {
+          ( { lib, pkgs, ... }: {
             virtualisation.memorySize = lib.mkForce 8192;
             virtualisation.cores = lib.mkForce 4;
+            virtualisation.qemu.options = [
+              # Enable KVM if supported
+              "-enable-kvm"
+              # --- GPU PASSTHROUGH (UNCOMMENT & EDIT) ---
+              # "-device vfio-pci,host=01:00.0,x-vga=on" 
+            ];
           })
         ];
       };

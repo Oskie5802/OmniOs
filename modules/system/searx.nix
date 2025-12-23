@@ -28,8 +28,8 @@
         limiter = false; # Disable rate limiter
       };
       search = {
-        safe_search = 1; # Moderate
-        autocomplete = "duckduckgo";
+        safe_search = 0; # Moderate
+        autocomplete = "google";
         formats = [
           "html"
           "json"
@@ -40,7 +40,7 @@
         {
           name = "duckduckgo";
           engine = "duckduckgo";
-          enabled = true;
+          enabled = false;
         }
         {
           name = "google";
@@ -50,12 +50,12 @@
         {
           name = "bing";
           engine = "bing";
-          enabled = true;
+          enabled = false;
         }
         {
           name = "qwant";
           engine = "qwant";
-          enabled = true;
+          enabled = false;
         }
         {
           name = "wikipedia";

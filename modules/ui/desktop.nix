@@ -7,6 +7,5 @@
     ./environment.nix
     ./startup-scripts.nix
     ../qemu/graphics.nix
-    ../qemu/guest-services.nix
   ];
 }

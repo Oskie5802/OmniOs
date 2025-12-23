@@ -48,7 +48,7 @@ class AIWorker(QThread):
 
     def run(self):
         try:
-            r = requests.post(BRAIN_URL, json={"query": self.query}, timeout=45)
+            r = requests.post(BRAIN_URL, json={"query": self.query}, timeout=120)
             answer = r.json().get("answer", "No answer received.")
             self.finished.emit(answer)
         except requests.exceptions.ConnectionError:
@@ -198,7 +198,7 @@ class PersonActionWidget(QWidget):
     def __init__(self, name, description, image_url, url, parent=None):
         super().__init__(parent)
         self.image_url = image_url
-        self.url = url
+        self.url = url or ""
         
         self.image_downloaded.connect(self.update_image)
         
@@ -330,6 +330,7 @@ class PersonActionWidget(QWidget):
         # We must apply the multiplier manually or the text will be cutoff.
         desc_h_raw = self.desc_label.heightForWidth(w_text)
         desc_h = int(desc_h_raw * 1.5) # 1.4 CSS + 0.1 Safety margin
+        name_h = int(name_h * 1.3) # Safety margin for Title too
         
         link_h = self.link_label.heightForWidth(w_text) + 8
         
@@ -345,6 +346,23 @@ class PersonActionWidget(QWidget):
         
         return QSize(600, final_h)
 
+class PlaceActionWidget(PersonActionWidget):
+    def __init__(self, name, description, image_url, url, lat, lon, parent=None):
+        super().__init__(name, description, image_url, url, parent)
+        
+        # If no image provided, try to generate a Static Map
+        if not image_url and lat and lon:
+            # Use a free static map service (e.g. OSM based)
+            # This is a fallback to ensure a map is displayed
+            self.image_url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=13&size=200x300&markers={lat},{lon},red-pushpin"
+            threading.Thread(target=self._download_image, daemon=True).start()
+            
+        # Customize Styling for Place
+        self.avatar.setStyleSheet("background-color: #F2F2F7; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1);")
+        if not image_url and not (lat and lon):
+            self.avatar.setText("📍") # Generic Pin if all else fails
+            self.avatar.setStyleSheet("background-color: #E5E5EA; color: #FF3B30; font-size: 48px; border-radius: 12px;")
+
 class ActionWorker(QThread):
     action_found = pyqtSignal(object, str) # action_data (dict), query
 
@@ -355,12 +373,16 @@ class ActionWorker(QThread):
     def run(self):
         try:
             # Fast Action Inference
-            r = requests.post("http://127.0.0.1:5500/action", json={"query": self.query}, timeout=15)
+            r = requests.post("http://127.0.0.1:5500/action", json={"query": self.query}, timeout=60)
             data = r.json()
-            action_data = data.get("action")
-            self.action_found.emit(action_data, self.query)
+            # Support both 'actions' (list) and legacy 'action' (dict)
+            actions = data.get("actions", [])
+            if not actions and data.get("action"):
+                actions = [data.get("action")]
+                
+            self.action_found.emit(actions, self.query)
         except:
-            self.action_found.emit(None, self.query)
+            self.action_found.emit([], self.query)
 
 class ThinkingWidget(QWidget):
     def __init__(self, text, parent=None):
@@ -641,90 +663,164 @@ class OmniWindow(QWidget):
             self.list_widget.scrollToBottom()
             self.adjust_window_height()
 
-    def handle_action_result(self, action_data, query):
-        logging.info(f"handle_action_result called. Query: '{query}', Data: {action_data}")
-        # Check if input matches
-        if self.input_field.text() != query:
-            logging.info(f"Input mismatch: '{self.input_field.text()}' != '{query}'")
+    def handle_action_result(self, actions_list, query):
+        current_text = self.input_field.text()
+        logging.info(f"handle_action_result called. Query: '{query}', Current Input: '{current_text}', Found: {len(actions_list) if actions_list else 0} actions")
+        
+        # Check if input matches (ignoring leading/trailing whitespace)
+        if current_text.strip() != query.strip():
+            logging.warning(f"Query mismatch (ignoring whitespace): '{current_text.strip()}' != '{query.strip()}'")
             return
-        if not action_data:
-            logging.info("No action data received.")
+
+        if not actions_list:
+            logging.info("No actions in list, returning.")
             return
         
-        # Check if we already have an action item at top
-        # Check if we already have an action item at top
-        first_item = self.list_widget.item(0)
-        if first_item:
+        # Ensure it's a list
+        if not isinstance(actions_list, list):
+            actions_list = [actions_list]
+
+        # 1. Clear ALL existing fast actions from top
+        # We loop and remove as long as item 0 is a fast_action
+        while True:
+            first_item = self.list_widget.item(0)
+            if not first_item: break
             data = first_item.data(Qt.ItemDataRole.UserRole)
             if data and isinstance(data, dict) and data.get('type') == 'fast_action':
-                    # Update existing? For now, easier to remove and re-add to handle widget reset
-                    self.list_widget.takeItem(0)
-        
-        # Insert at top
-        item = QListWidgetItem()
-        
-        # --- RICH UI ---
-        if isinstance(action_data, dict) and action_data.get('type') == 'link':
-            # Rich Link Card
-            widget = LinkActionWidget(
-                title=action_data.get('title', 'Link'),
-                url=action_data.get('url', ' '.strip()),
-                description=action_data.get('description', ' '.strip())
-            )
-            item.setSizeHint(widget.sizeHint()) # Dynamic height
-            item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
-            self.list_widget.insertItem(0, item)
-            self.list_widget.setItemWidget(item, widget)
-            
-        elif isinstance(action_data, dict) and action_data.get('type') == 'person':
-            # Person Card
-            widget = PersonActionWidget(
-                name=action_data.get('name', 'Person'),
-                description=action_data.get('description', ' '),
-                image_url=action_data.get('image'),
-                url=action_data.get('url')
-            )
-            item.setSizeHint(widget.sizeHint())
-            item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
-            self.list_widget.insertItem(0, item)
-            self.list_widget.setItemWidget(item, widget)
-
-        elif isinstance(action_data, dict) and action_data.get('type') == 'status':
-                # Status Text (Gray)
-                text = f"⚡ {action_data.get('content')}"
-                item.setText(text)
-                item.setForeground(QColor("#8E8E93"))
-                font = item.font(); font.setItalic(True); item.setFont(font)
-                item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
-                self.list_widget.insertItem(0, item)
-
-        elif isinstance(action_data, dict) and action_data.get('type') == 'calc':
-                # Calculator
-                val = action_data.get('content')
-                item.setText(f"  {val}")
-                item.setIcon(QIcon.fromTheme("accessories-calculator"))
-                item.setForeground(QColor("#AF52DE"))
-                font = item.font(); font.setBold(True); font.setPointSize(22); item.setFont(font)
-                item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
-                self.list_widget.insertItem(0, item)
-                
-        else:
-            # Fallback / Command
-            # Support old string format just in case
-            if isinstance(action_data, str):
-                    text = action_data
+                self.list_widget.takeItem(0)
             else:
-                    text = action_data.get('content', str(action_data))
-                    
-            item.setText(f"⚡ {text}")
-            item.setForeground(QColor("#007AFF"))
-            font = item.font(); font.setBold(True); item.setFont(font)
-            item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
-            self.list_widget.insertItem(0, item)
+                break # Stop if we hit a non-action item (like an app)
         
+        # 2. Insert New Actions (Reverse order to maintain A, B, C top-down)
+        for action_data in reversed(actions_list):
+            logging.info(f"Processing action item: {action_data}")
+            item = QListWidgetItem()
+            
+            # --- RICH UI ---
+            if isinstance(action_data, dict) and action_data.get('type') == 'link':
+                # Rich Link Card
+                widget = LinkActionWidget(
+                    title=action_data.get('title', 'Link'),
+                    url=action_data.get('url', ' '.strip()),
+                    description=action_data.get('description', ' '.strip())
+                )
+                item.setSizeHint(widget.sizeHint()) # Dynamic height
+                item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
+                self.list_widget.insertItem(0, item)
+                self.list_widget.setItemWidget(item, widget)
+                
+            elif isinstance(action_data, dict) and action_data.get('type') == 'person':
+                # Person Card
+                widget = PersonActionWidget(
+                    name=action_data.get('name', 'Person'),
+                    description=action_data.get('description', ' '),
+                    image_url=action_data.get('image'),
+                    url=action_data.get('url')
+                )
+                item.setSizeHint(widget.sizeHint())
+                item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
+                self.list_widget.insertItem(0, item)
+                self.list_widget.setItemWidget(item, widget)
+
+            elif isinstance(action_data, dict) and action_data.get('type') == 'place':
+                # Place Card (With Map Logic)
+                widget = PlaceActionWidget(
+                    name=action_data.get('name', 'Place'),
+                    description=action_data.get('description') or action_data.get('address', ' '),
+                    image_url=action_data.get('image'),
+                    url=action_data.get('url'),
+                    lat=action_data.get('latitude'),
+                    lon=action_data.get('longitude')
+                )
+                item.setSizeHint(widget.sizeHint())
+                item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
+                self.list_widget.insertItem(0, item)
+                self.list_widget.setItemWidget(item, widget)
+
+            elif isinstance(action_data, dict) and action_data.get('type') == 'status':
+                    # Status Text (Gray)
+                    text = f"⚡ {action_data.get('content')}"
+                    item.setText(text)
+                    item.setForeground(QColor("#8E8E93"))
+                    font = item.font(); font.setItalic(True); item.setFont(font)
+                    item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
+                    self.list_widget.insertItem(0, item)
+
+            elif isinstance(action_data, dict) and action_data.get('type') == 'calc':
+                    # Calculator
+                    val = action_data.get('content')
+                    item.setText(f"  {val}")
+                    item.setIcon(QIcon.fromTheme("accessories-calculator"))
+                    item.setForeground(QColor("#AF52DE"))
+                    font = item.font(); font.setBold(True); font.setPointSize(22); item.setFont(font)
+                    item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
+                    self.list_widget.insertItem(0, item)
+                    
+            else:
+                # Fallback / Command
+                if isinstance(action_data, str):
+                        text = action_data
+                else:
+                        text = action_data.get('content', str(action_data))
+                        
+                item.setText(f"⚡ {text}")
+                item.setForeground(QColor("#007AFF"))
+                font = item.font(); font.setBold(True); item.setFont(font)
+                item.setData(Qt.ItemDataRole.UserRole, {"type": "fast_action", "action_data": action_data})
+                self.list_widget.insertItem(0, item)
+            
         self.list_widget.setCurrentRow(0)
         self.adjust_window_height()
 
+    def on_entered(self, item=None):
+        query = self.input_field.text().strip()
+        if not query: return
+        
+        # Stop any pending fast actions
+        self.debounce_timer.stop()
+        
+        # Cancel active Fast Action Worker if running
+        if self.action_worker and self.action_worker.isRunning():
+            self.action_worker.terminate()
+            self.action_worker.wait()
+            self.action_worker = None
+        
+        # Determine if we should launch or search
+        # 1. Check if user clicked a specific item
+        if item:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                action_type = data.get("type")
+                
+                if action_type == "launch_app":
+                    self.launch_app(data.get("app_cmd"))
+                    self.reset_ui()
+                    return
+                    
+                elif action_type == "fast_action":
+                    action_data = data.get("action_data")
+                    # Handle Rich Actions
+                    if action_data.get('type') == 'link' or action_data.get('type') == 'open':
+                        QDesktopServices.openUrl(QUrl(action_data.get('url')))
+                        self.reset_ui()
+                        return
+
+        # 2. Main "Ask Omni" Flow
+        self.list_widget.clear()
+        
+        # Show Thinking UI
+        item = QListWidgetItem()
+        self.thinking_widget = ThinkingWidget(f"Analyzing '{query}'...")
+        item.setSizeHint(self.thinking_widget.sizeHint())
+        self.list_widget.addItem(item)
+        self.list_widget.setItemWidget(item, self.thinking_widget)
+        
+        self.adjust_window_height()
+        
+        # Start AI Worker
+        self.ai_worker = AIWorker(query)
+        self.ai_worker.finished.connect(self.display_answer)
+        self.ai_worker.start()
 
     def center(self):
         qr = self.frameGeometry()

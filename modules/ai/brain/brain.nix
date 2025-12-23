@@ -8,9 +8,9 @@
 let
 
   # --- CONFIGURATION ---
-  modelName = "Qwen3-0.6B-Q8_0.gguf";
-  modelHash = "0cdh7c26vlcv4l3ljrh7809cfhvh2689xfdlkd6kbmdd48xfcrcl";
-  modelUrl = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf";
+  modelName = "gemma-3-1b-it-Q8_0.gguf";
+  modelHash = "0790j1qd9gzkb78plh6dwgqvppizjnj5qvyrf7cqhhnik82gnvb1";
+  modelUrl = "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q8_0.gguf";
 
   # --- BAKED IN MODEL ---
   builtInModel = pkgs.fetchurl {
@@ -46,8 +46,10 @@ let
   '';
   # --- STARTUP WRAPPER ---
   brainWrapper = pkgs.writeShellScriptBin "start-brain-safe" ''
-    export HF_TOKEN="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"
+
+
     export MODEL_FILENAME="${modelName}"
+    export N_GPU_LAYERS="${if builtins.getEnv "N_GPU_LAYERS" != "" then builtins.getEnv "N_GPU_LAYERS" else "0"}"
     mkdir -p "$HOME/.local/share/ai-models"
     DEST="$HOME/.local/share/ai-models/${modelName}"
 
@@ -73,13 +75,13 @@ in
 
     serviceConfig = {
       Type = "simple";
-      ExecStartPre = "${pkgs.coreutils}/bin/sleep 15";
+      ExecStartPre = "${pkgs.coreutils}/bin/sleep 5";
       ExecStart = "${brainWrapper}/bin/start-brain-safe";
       Restart = "always";
       RestartSec = 5;
       
       # --- RESOURCE PROTECTION ---
-      CPUQuota = "150%";       # Max 1.5 cores (out of 4)
+      CPUQuota = "300%";       # Max 3 cores (out of 4)
       MemoryHigh = "3072M";    # Throttle at 3GB
       MemoryMax = "4096M";     # Kill at 4GB
       

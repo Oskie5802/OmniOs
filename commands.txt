@@ -2,6 +2,8 @@
 Linux:
 nix run .#run-vm --impure
 
+N_GPU_LAYERS=999 nix run .#run-vm --impure
+
 
 MacOS:
 nix --extra-experimental-features "nix-command flakes" run . --impure
